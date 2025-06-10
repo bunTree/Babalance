@@ -1,0 +1,162 @@
+<!--数据查看页面-->
+<view class="container {{backgroundClass}}">
+  <!-- 状态栏占位 -->
+  <view class="status-bar" style="height: {{statusBarHeight}}px;"></view>
+
+  <!-- 主卡片容器 -->
+  <view class="main-card">
+    <!-- 顶部指标概览 -->
+    <view class="metrics-section {{backgroundClass}}">
+      <view class="metrics-title">最新数据</view>
+      <view class="metrics-grid">
+        <view class="metric-item" wx:for="{{metrics}}" wx:key="key">
+          <view class="metric-icon">{{item.icon}}</view>
+          <view class="metric-value">{{item.value}}</view>
+          <view class="metric-label">{{item.label}}</view>
+          <view class="metric-unit">{{item.unit}}</view>
+        </view>
+      </view>
+      <view class="metrics-date">最后更新：{{lastUpdateDate}}</view>
+    </view>
+
+    <!-- 图表区域 -->
+    <view class="chart-section">
+      <view class="section-header">
+        <view class="section-title">成长曲线</view>
+        <view class="chart-type-tabs">
+          <view 
+            class="chart-tab {{item.active ? 'active' : ''}}"
+            wx:for="{{chartTypes}}" 
+            wx:key="key"
+            bindtap="onChartTypeChange"
+            data-type="{{item.key}}"
+          >
+            {{item.label}}
+          </view>
+        </view>
+      </view>
+
+      <!-- 时间范围选择 -->
+      <view class="time-selector">
+        <view 
+          class="time-btn {{item.active ? 'active' : ''}}" 
+          wx:for="{{timeOptions}}" 
+          wx:key="key"
+          bindtap="onTimeChange" 
+          data-period="{{item.key}}"
+        >
+          {{item.label}}
+        </view>
+      </view>
+
+      <!-- 图表画布 -->
+      <view class="chart-container">
+        <canvas 
+          canvas-id="growthChart" 
+          class="chart-canvas"
+          bindtouchstart="touchChart"
+          bindtouchmove="touchChart"
+        ></canvas>
+      </view>
+    </view>
+
+    <!-- 智能分析 -->
+    <view class="analysis-section">
+      <view class="section-header">
+        <view class="section-icon">💡</view>
+        <view class="section-title">智能分析</view>
+      </view>
+      <view class="analysis-content">{{analysisText}}</view>
+    </view>
+
+    <!-- 历史记录 -->
+    <view class="history-section">
+      <view class="section-header">
+        <view class="section-icon">📋</view>
+        <view class="section-title">历史记录</view>
+        <view class="section-action" bindtap="viewAllRecords">查看全部</view>
+      </view>
+      <view class="records-list">
+        <view class="record-card" wx:for="{{recentRecords}}" wx:key="id">
+          <view class="record-date">{{item.date}}</view>
+          <view class="record-measurements">
+            <view class="measurement-item" wx:for="{{item.measurements}}" wx:for-item="measurement" wx:key="type">
+              <text class="measurement-label">{{measurement.label}}:</text>
+              <text class="measurement-value">{{measurement.value}} {{measurement.unit}}</text>
+            </view>
+          </view>
+        </view>
+      </view>
+      
+      <!-- 空状态 -->
+      <view class="empty-state" wx:if="{{recentRecords.length === 0}}">
+        <view class="empty-icon">📊</view>
+        <view class="empty-title">暂无记录</view>
+        <view class="empty-subtitle">点击下方加号按钮开始记录宝宝的成长数据</view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 添加记录弹窗 -->
+  <view class="modal-overlay" wx:if="{{showModal}}" bindtap="hideModal">
+    <view class="modal-content" catchtap="stopPropagation">
+      <view class="modal-body">
+        <view class="form-group">
+          <text class="form-label">身高 (cm)</text>
+          <input 
+            class="form-input" 
+            type="number" 
+            placeholder="例如：68.5" 
+            value="{{modalData.height}}"
+            bindinput="onModalInput"
+            data-field="height"
+            maxlength="5"
+          />
+        </view>
+
+        <view class="form-group">
+          <text class="form-label">体重 (kg)</text>
+          <input 
+            class="form-input" 
+            type="number" 
+            placeholder="例如：8.5" 
+            value="{{modalData.weight}}"
+            bindinput="onModalInput"
+            data-field="weight"
+            maxlength="5"
+          />
+        </view>
+
+        <view class="form-group">
+          <text class="form-label">头围 (cm)</text>
+          <input 
+            class="form-input" 
+            type="number" 
+            placeholder="例如：42.5" 
+            value="{{modalData.head}}"
+            bindinput="onModalInput"
+            data-field="head"
+            maxlength="5"
+          />
+        </view>
+
+        <view class="form-group">
+          <text class="form-label">记录日期</text>
+          <picker mode="date" value="{{modalData.date}}" bindchange="onModalDateChange">
+            <view class="form-input picker-input">
+              <text class="picker-text">{{modalData.date || '点击选择日期'}}</text>
+              <text class="picker-arrow">📅</text>
+            </view>
+          </picker>
+        </view>
+      </view>
+
+      <view class="modal-footer">
+        <button class="btn btn-cancel" bindtap="hideModal">取消</button>
+        <button class="btn btn-primary" bindtap="submitRecord" disabled="{{submitting}}">
+          {{submitting ? '保存中...' : '确定'}}
+        </button>
+      </view>
+    </view>
+  </view>
+</view> 

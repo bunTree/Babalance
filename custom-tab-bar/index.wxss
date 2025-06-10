@@ -1,0 +1,210 @@
+/* TabBar 主容器 */
+.tab-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 70px;
+  background: #ffffff;
+  display: flex;
+  padding-bottom: constant(safe-area-inset-bottom);
+  padding-bottom: env(safe-area-inset-bottom);
+  border-top: 1rpx solid #f1f5f9;
+  z-index: 1000;
+}
+
+/* TabBar 项目 */
+.tab-bar-item {
+  flex: 1;
+  text-align: center;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-direction: column;
+  font-size: 10px;
+  position: relative;
+  cursor: pointer;
+  /* 移除复杂动画，只保留基础过渡 */
+  transition: all 0.2s ease;
+}
+
+/* 普通 Tab 项 */
+.tab-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: 8rpx;
+}
+
+/* 简化的加号按钮 */
+.add-button {
+  position: relative;
+  width: 100rpx;
+  height: 100rpx;
+  border-radius: 25rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: -20rpx;
+  /* 简化过渡效果 */
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  cursor: pointer;
+  background: #ffffff;
+  /* 简化阴影 */
+  box-shadow: 0 4rpx 12rpx rgba(0, 0, 0, 0.1);
+  border: 1rpx solid #f1f5f9;
+  z-index: 100;
+}
+
+/* 性别主题色彩 - 简化版 */
+.add-button-male {
+  border-color: rgba(59, 130, 246, 0.2);
+  box-shadow: 0 4rpx 12rpx rgba(59, 130, 246, 0.15);
+}
+
+.add-button-female {
+  border-color: rgba(244, 114, 182, 0.2);
+  box-shadow: 0 4rpx 12rpx rgba(244, 114, 182, 0.15);
+}
+
+.add-button-unknown {
+  border-color: rgba(139, 92, 246, 0.2);
+  box-shadow: 0 4rpx 12rpx rgba(139, 92, 246, 0.15);
+}
+
+/* 简化悬浮效果 */
+.add-button:hover {
+  transform: translateY(-1rpx);
+}
+
+/* 简化点击效果 */
+.add-button:active {
+  transform: translateY(1rpx) scale(0.98);
+  transition: all 0.1s ease;
+}
+
+/* 简化点击阴影 */
+.add-button-male:active {
+  box-shadow: 0 2rpx 6rpx rgba(59, 130, 246, 0.2);
+}
+
+.add-button-female:active {
+  box-shadow: 0 2rpx 6rpx rgba(244, 114, 182, 0.2);
+}
+
+.add-button-unknown:active {
+  box-shadow: 0 2rpx 6rpx rgba(139, 92, 246, 0.2);
+}
+
+/* 图标样式 */
+.tab-icon {
+  font-size: 48rpx;
+  transition: transform 0.15s ease;
+  display: block;
+  line-height: 1;
+}
+
+.tab-text {
+  font-size: 20rpx;
+  color: #94a3b8;
+  margin-top: 8rpx;
+  font-weight: 500;
+  transition: color 0.15s ease;
+  line-height: 1.2;
+  display: block;
+}
+
+/* 激活状态 */
+.tab-bar-item-active .tab-icon {
+  transform: scale(1.1);
+}
+
+.tab-bar-item-active .tab-text {
+  color: #667eea;
+  font-weight: 600;
+}
+
+/* 图标容器 */
+.add-icon-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+.tab-icon-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+
+/* 加号图标 - 简化版 */
+.add-button .tab-icon {
+  font-size: 48rpx;
+  font-weight: 300;
+  line-height: 1;
+  transition: transform 0.15s ease;
+}
+
+/* 性别主题色彩 */
+.add-button-male .tab-icon {
+  color: #3b82f6;
+}
+
+.add-button-female .tab-icon {
+  color: #ec4899;
+}
+
+.add-button-unknown .tab-icon {
+  color: #8b5cf6;
+}
+
+/* 简化旋转动画 */
+.add-button:active .tab-icon {
+  transform: rotate(45deg) scale(1.05);
+}
+
+/* 响应式适配 */
+@media (max-width: 320px) {
+  .add-button {
+    width: 88rpx;
+    height: 88rpx;
+    border-radius: 22rpx;
+    margin-top: -18rpx;
+  }
+  
+  .add-button .tab-icon {
+    font-size: 40rpx;
+  }
+}
+
+/* 无障碍支持 */
+@media (prefers-reduced-motion: reduce) {
+  .tab-bar-item,
+  .add-button,
+  .tab-icon,
+  .tab-text {
+    transition: none !important;
+  }
+}
+
+/* 深色模式适配 */
+@media (prefers-color-scheme: dark) {
+  .tab-bar {
+    background: #1f2937;
+    border-top: 1rpx solid #374151;
+  }
+  
+  .add-button {
+    background: #f9fafb;
+    border: 1rpx solid #e5e7eb;
+  }
+} 

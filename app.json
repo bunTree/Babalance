@@ -1,0 +1,47 @@
+{
+  "pages": [
+    "pages/monitor/monitor",
+    "pages/profile/profile"
+  ],
+  "window": {
+    "backgroundTextStyle": "light",
+    "navigationBarBackgroundColor": "#667eea",
+    "navigationBarTitleText": "宝宝成长记录",
+    "navigationBarTextStyle": "white",
+    "backgroundColor": "#f8fafc"
+  },
+  "style": "v2",
+  "renderer": "skyline",
+  "rendererOptions": {
+    "skyline": {
+      "defaultDisplayBlock": true,
+      "defaultContentBox": true,
+      "tagNameStyleIsolation": "legacy",
+      "disableABTest": true,
+      "sdkVersionBegin": "3.0.0",
+      "sdkVersionEnd": "15.255.255"
+    }
+  },
+  "componentFramework": "glass-easel",
+  "tabBar": {
+    "custom": true,
+    "color": "#64748b",
+    "selectedColor": "#667eea",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "white",
+    "fontSize": "22px",
+    "position": "bottom",
+    "list": [
+      {
+        "pagePath": "pages/monitor/monitor",
+        "text": "👁️查看"
+      },
+      {
+        "pagePath": "pages/profile/profile",
+        "text": "🍼我的宝"
+      }
+    ]
+  },
+  "sitemapLocation": "sitemap.json",
+  "lazyCodeLoading": "requiredComponents"
+}

@@ -1,0 +1,173 @@
+<!--我的宝页面-->
+<view class="container {{containerClass}}">
+  <!-- 宝宝信息卡片 -->
+  <view class="baby-card">
+    <!-- 头像区域 -->
+    <view class="avatar-section {{containerClass}}" bindtap="changeAvatar">
+      <view class="avatar-container">
+        <image 
+          class="avatar" 
+          src="{{babyInfo.avatar || '/images/default-avatar.png'}}" 
+          mode="aspectFill"
+        ></image>
+        <view class="avatar-edit">
+          <image src="/images/icons/camera.svg" style="width: 24rpx; height: 24rpx;"></image>
+        </view>
+      </view>
+    </view>
+
+    <!-- 信息区域 -->
+    <view class="info-area">
+      <!-- 姓名 -->
+      <view class="info-row" bindtap="editField" data-field="name">
+        <view class="info-left">
+          <image class="info-icon" src="/images/icons/user.svg"></image>
+          <text class="info-label">姓名</text>
+        </view>
+        <view class="info-right">
+          <text class="info-value">{{babyInfo.name || '点击设置'}}</text>
+          <image class="arrow-icon" src="/images/icons/chevron-right.svg"></image>
+        </view>
+      </view>
+
+      <!-- 性别 -->
+      <view class="info-row" bindtap="editField" data-field="gender">
+        <view class="info-left">
+          <image class="info-icon" src="/images/icons/users.svg"></image>
+          <text class="info-label">性别</text>
+        </view>
+        <view class="info-right">
+          <text class="info-value">{{genderText || '点击设置'}}</text>
+          <image class="arrow-icon" src="/images/icons/chevron-right.svg"></image>
+        </view>
+      </view>
+
+      <!-- 生日 -->
+      <view class="info-row" bindtap="editField" data-field="birthday">
+        <view class="info-left">
+          <image class="info-icon" src="/images/icons/calendar.svg"></image>
+          <text class="info-label">生日</text>
+        </view>
+        <view class="info-right">
+          <view class="birthday-info">
+            <text class="info-value">{{babyInfo.birthday || '点击设置'}}</text>
+            <text class="age-text" wx:if="{{babyInfo.birthday}}">{{ageText}}</text>
+          </view>
+          <image class="arrow-icon" src="/images/icons/chevron-right.svg"></image>
+        </view>
+      </view>
+    </view>
+  </view>
+</view>
+
+<!-- 编辑弹窗 -->
+<view class="modal" wx:if="{{showEditModal}}" bindtap="closeModal">
+  <view class="modal-content" catchtap="stopPropagation">
+    <view class="modal-header">
+      <text class="modal-title">编辑{{editFieldName}}</text>
+      <view class="modal-close" bindtap="closeModal">×</view>
+    </view>
+    
+    <view class="modal-body">
+      <!-- 文本输入 -->
+      <input 
+        class="modal-input" 
+        placeholder="请输入{{editFieldName}}"
+        value="{{editValue}}"
+        bindinput="onEditInput"
+        wx:if="{{editType === 'text'}}"
+      />
+      
+      <!-- 日期选择 -->
+      <picker 
+        mode="date" 
+        value="{{editValue}}" 
+        bindchange="onDateSelect"
+        wx:if="{{editType === 'date'}}"
+      >
+        <view class="modal-input">{{editValue || '选择日期'}}</view>
+      </picker>
+      
+      <!-- 单选选择 -->
+      <view class="radio-group" wx:if="{{editType === 'radio'}}">
+        <view 
+          class="radio-option {{item.value === editValue ? 'active' : ''}}"
+          wx:for="{{editOptions}}" 
+          wx:key="value"
+          bindtap="onRadioSelect"
+          data-value="{{item.value}}"
+        >
+          {{item.label}}
+        </view>
+      </view>
+    </view>
+    
+    <view class="modal-footer">
+      <button class="modal-btn modal-btn-cancel" bindtap="closeModal">取消</button>
+      <button class="modal-btn modal-btn-confirm" bindtap="confirmEdit">确定</button>
+    </view>
+  </view>
+</view>
+
+<!-- 添加记录弹窗 -->
+<view class="modal-overlay" wx:if="{{showModal}}" bindtap="hideModal">
+        <view class="modal-content" catchtap="stopPropagation">
+        <view class="modal-body">
+          <view class="form-group">
+            <text class="form-label">身高 (cm)</text>
+            <input 
+              class="form-input" 
+              type="number" 
+              placeholder="例如：68.5" 
+              value="{{modalData.height}}"
+              bindinput="onModalInput"
+              data-field="height"
+              maxlength="5"
+            />
+          </view>
+
+          <view class="form-group">
+            <text class="form-label">体重 (kg)</text>
+            <input 
+              class="form-input" 
+              type="number" 
+              placeholder="例如：8.5" 
+              value="{{modalData.weight}}"
+              bindinput="onModalInput"
+              data-field="weight"
+              maxlength="5"
+            />
+          </view>
+
+          <view class="form-group">
+            <text class="form-label">头围 (cm)</text>
+            <input 
+              class="form-input" 
+              type="number" 
+              placeholder="例如：42.5" 
+              value="{{modalData.head}}"
+              bindinput="onModalInput"
+              data-field="head"
+              maxlength="5"
+            />
+          </view>
+
+          <view class="form-group">
+            <text class="form-label">记录日期</text>
+            <picker mode="date" value="{{modalData.date}}" bindchange="onModalDateChange">
+              <view class="form-input picker-input">
+                <text class="picker-text">{{modalData.date || '点击选择日期'}}</text>
+                <text class="picker-arrow">📅</text>
+              </view>
+            </picker>
+          </view>
+        </view>
+
+    <view class="modal-footer">
+      <button class="btn btn-cancel" bindtap="hideModal">取消</button>
+      <button class="btn btn-primary" bindtap="submitRecord" disabled="{{submitting}}">
+        {{submitting ? '保存中...' : '确定'}}
+      </button>
+    </view>
+  </view>
+</view> 

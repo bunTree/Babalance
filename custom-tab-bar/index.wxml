@@ -1,0 +1,19 @@
+<view class="tab-bar">
+  <view
+    class="tab-bar-item {{selected === index ? 'tab-bar-item-active' : ''}}"
+    wx:for="{{list}}"
+    wx:key="index"
+    data-path="{{item.pagePath}}"
+    data-is-button="{{item.isButton}}"
+    bindtap="switchTab"
+  >
+    <view 
+      class="{{item.isButton ? 'add-button add-button-' + babyGender : 'tab-item'}}"
+    >
+      <view class="{{item.isButton ? 'add-icon-container' : 'tab-icon-container'}}">
+        <text class="tab-icon">{{item.text}}</text>
+      </view>
+      <text class="tab-text" wx:if="{{!item.isButton}}">{{item.title}}</text>
+    </view>
+  </view>
+</view> 
