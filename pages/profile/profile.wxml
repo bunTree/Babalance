@@ -1,18 +1,26 @@
 <!--我的宝页面-->
-<view class="container {{containerClass}}">
+<view class="container {{containerClass}}" style="{{containerStyle}}">
+  <!-- 隐藏的canvas用于图片压缩 -->
+  <canvas id="avatarCompressCanvas" canvas-id="avatarCompressCanvas" type="2d" style="position: fixed; top: -9999px; left: -9999px; width: 800px; height: 800px;"></canvas>
   <!-- 宝宝信息卡片 -->
   <view class="baby-card">
     <!-- 头像区域 -->
     <view class="avatar-section {{containerClass}}" bindtap="changeAvatar">
       <view class="avatar-container">
+        <!-- 有头像时显示图片 -->
         <image 
+          wx:if="{{babyInfo.avatar}}"
           class="avatar" 
-          src="{{babyInfo.avatar || '/images/default-avatar.png'}}" 
+          src="{{babyInfo.avatar}}" 
           mode="aspectFill"
           binderror="onAvatarError"
         ></image>
+        <!-- 无头像时显示文字 -->
+        <view wx:else class="avatar avatar-text">
+          <text class="avatar-letter">{{babyInfo.name ? babyInfo.name.charAt(0) : '宝'}}</text>
+        </view>
         <view class="avatar-edit">
-          <image src="/images/icons/camera.svg" style="width: 24rpx; height: 24rpx;"></image>
+          <text class="camera-icon">📷</text>
         </view>
       </view>
     </view>

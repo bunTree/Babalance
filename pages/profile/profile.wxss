@@ -4,7 +4,10 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 60rpx 30rpx;
+  padding-top: calc(var(--status-bar-height) + 20rpx); /* 减少顶部间距，允许与系统按键重叠 */
+  padding-left: 30rpx;
+  padding-right: 30rpx;
+  padding-bottom: calc(140px + env(safe-area-inset-bottom) + 40rpx); /* 底部导航栏高度 + 安全区域 */
   box-sizing: border-box;
   transition: background 0.3s ease;
 }
@@ -95,23 +98,39 @@
   height: 100%;
 }
 
+/* 文字头像样式 */
+.avatar-text {
+  background: rgba(255,255,255,0.3);
+}
+
+.avatar-letter {
+  font-size: 60rpx;
+  font-weight: 600;
+  color: white;
+  text-shadow: 0 2rpx 8rpx rgba(0,0,0,0.2);
+}
+
 .avatar-edit {
   position: absolute;
-  bottom: 0;
-  right: 0;
-  width: 50rpx;
-  height: 50rpx;
-  background: white;
+  bottom: 5rpx;
+  right: 5rpx;
+  width: 40rpx;
+  height: 40rpx;
+  background: rgba(255,255,255,0.95);
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 4rpx 12rpx rgba(0,0,0,0.15);
+  box-shadow: 0 2rpx 8rpx rgba(0,0,0,0.2);
+  border: 2rpx solid rgba(255,255,255,0.9);
 }
 
-.avatar-edit image {
-  filter: brightness(0) saturate(100%) invert(31%) sepia(52%) saturate(1000%) hue-rotate(219deg) brightness(94%) contrast(86%);
+.camera-icon {
+  font-size: 20rpx;
+  line-height: 1;
 }
+
+
 
 
 

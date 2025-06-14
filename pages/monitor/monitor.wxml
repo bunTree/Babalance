@@ -6,16 +6,9 @@
 
     <!-- 成长监测模块 -->
     <view class="growth-module">
-      <view class="module-header">
+      <!-- 模块标题 -->
+      <view class="module-header-safe">
         <text class="module-title">成长监测</text>
-        <view class="time-selector">
-          <text class="time-option {{timeRange === '7' ? 'active' : ''}}" 
-                bindtap="selectTimeRange" data-range="7">7天</text>
-          <text class="time-option {{timeRange === '30' ? 'active' : ''}}" 
-                bindtap="selectTimeRange" data-range="30">30天</text>
-          <text class="time-option {{timeRange === 'all' ? 'active' : ''}}" 
-                bindtap="selectTimeRange" data-range="all">全部</text>
-        </view>
       </view>
 
       <!-- 宝宝简介卡片 -->
@@ -23,7 +16,14 @@
         <!-- 左侧基本信息 -->
         <view class="profile-left">
           <view class="baby-avatar">
-            <text class="avatar-text">{{babyInfo.name ? babyInfo.name.charAt(0) : '宝'}}</text>
+            <image 
+              wx:if="{{babyInfo.avatar}}" 
+              class="avatar-image" 
+              src="{{babyInfo.avatar}}" 
+              mode="aspectFill"
+              binderror="onAvatarError"
+            />
+            <text wx:else class="avatar-text">{{babyInfo.name ? babyInfo.name.charAt(0) : '宝'}}</text>
           </view>
           <view class="baby-basic-info">
             <text class="baby-name">{{babyInfo.name || '我的宝宝'}}</text>
@@ -59,35 +59,101 @@
         </view>
       </view>
 
-      <!-- 成长曲线标题 -->
-      <view class="chart-title-section">
-        <text class="chart-main-title">成长曲线图</text>
-        <text class="chart-subtitle">{{getCurrentMetricLabel(activeChartType)}}变化趋势</text>
+      <!-- 时间范围选择器 - 位于宝宝信息卡和成长曲线图之间 -->
+      <view class="chart-time-selector">
+        <view class="time-selector-tabs">
+          <view class="time-tab {{timeRange === '7' ? 'active' : ''}}" 
+                bindtap="selectTimeRange" data-range="7">
+            <text class="tab-text">近7天</text>
+            <text class="tab-desc">最近一周</text>
+          </view>
+          <view class="time-tab {{timeRange === '30' ? 'active' : ''}}" 
+                bindtap="selectTimeRange" data-range="30">
+            <text class="tab-text">近30天</text>
+            <text class="tab-desc">最近一月</text>
+          </view>
+          <view class="time-tab {{timeRange === 'all' ? 'active' : ''}}" 
+                bindtap="selectTimeRange" data-range="all">
+            <text class="tab-text">全部数据</text>
+            <text class="tab-desc">所有记录</text>
+          </view>
+        </view>
       </view>
 
       <!-- 成长曲线 -->
       <view class="chart-container" wx:if="{{!showEditModal && !showModal}}">
-        <canvas 
-          class="chart-canvas" 
-          canvas-id="growthChart" 
-          id="growthChart" 
-          type="2d"
-          bindtouchmove="onChartTouchMove"
-          bindtouchstart="onChartTouchStart"
-          bindtouchend="onChartTouchEnd"
-        ></canvas>
+        <!-- 月份导航（仅在全部模式下显示） -->
+        <view class="month-navigation" wx:if="{{monthNavigationVisible}}">
+          <view class="month-nav-compact">
+            <view 
+              class="month-nav-arrow {{currentDisplayMonth === 0 ? 'disabled' : ''}}" 
+              bindtap="previousMonth"
+            >
+              ←
+            </view>
+            
+            <view class="month-nav-center">
+              <text class="month-nav-current">{{currentDisplayMonth}}月龄</text>
+              <view class="month-dots-compact">
+                <view 
+                  class="month-dot-mini {{index === currentDisplayMonth ? 'active' : ''}}"
+                  wx:for="{{totalMonths}}" 
+                  wx:key="index"
+                  bindtap="switchToMonth"
+                  data-month="{{index}}"
+                ></view>
+              </view>
+            </view>
+            
+            <view 
+              class="month-nav-arrow {{currentDisplayMonth === totalMonths - 1 ? 'disabled' : ''}}" 
+              bindtap="nextMonth"
+            >
+              →
+            </view>
+          </view>
+        </view>
         
-                 <!-- 坐标提示框 -->
-         <view 
-           class="chart-tooltip" 
-           wx:if="{{showTooltip}}"
-           style="left: {{tooltipX}}px; top: {{tooltipY}}px;"
-         >
-           <view class="tooltip-content">
-             <text class="tooltip-time">{{tooltipTime}}</text>
-             <text class="tooltip-value" wx:for="{{tooltipValues}}" wx:key="index">{{item}}</text>
-           </view>
-         </view>
+        <!-- 滑动提示 -->
+        <view class="chart-scroll-hint" wx:if="{{chartScrollable && !monthNavigationVisible}}">
+          <text class="scroll-hint-text">← 左右滑动查看更多数据 →</text>
+        </view>
+        
+        <!-- 可滑动的图表区域 -->
+        <scroll-view 
+          class="chart-scroll-view" 
+          scroll-x="{{chartScrollable}}"
+          scroll-left="{{chartScrollLeft}}"
+          bindscroll="onChartScroll"
+          enhanced="{{true}}"
+          show-scrollbar="{{false}}"
+          enable-flex="{{true}}"
+        >
+          <view class="chart-content" style="width: {{chartWidth}}px;">
+            <canvas 
+              class="chart-canvas" 
+              canvas-id="growthChart" 
+              id="growthChart" 
+              type="2d"
+              style="width: {{chartWidth}}px; height: {{chartHeight}}px;"
+              bindtouchmove="onChartTouchMove"
+              bindtouchstart="onChartTouchStart"
+              bindtouchend="onChartTouchEnd"
+            ></canvas>
+          </view>
+        </scroll-view>
+        
+        <!-- 坐标提示框 -->
+        <view 
+          class="chart-tooltip" 
+          wx:if="{{showTooltip}}"
+          style="left: {{tooltipX}}px; top: {{tooltipY}}px;"
+        >
+          <view class="tooltip-content">
+            <text class="tooltip-time">{{tooltipTime}}</text>
+            <text class="tooltip-value" wx:for="{{tooltipValues}}" wx:key="index">{{item}}</text>
+          </view>
+        </view>
         
         <view class="chart-description">
           <text class="chart-desc-text">实线显示实际测量值，彩色线条为WHO百分位曲线（P3、P15、P50、P85、P97）</text>
@@ -146,7 +212,10 @@
         <button class="debug-btn debug-btn-info" bindtap="testWHOGenderSwitch">🚻 测试性别切换</button>
         <button class="debug-btn debug-btn-success" bindtap="testChartTooltip">📍 测试坐标提示</button>
         <button class="debug-btn debug-btn-warning" bindtap="debugDataAndChart">🔍 调试数据和图表</button>
+        <button class="debug-btn debug-btn-info" bindtap="testAutoRefresh">🔄 测试自动刷新</button>
         <button class="debug-btn debug-btn-info" bindtap="testDatabaseQuery">🔍 测试数据库查询</button>
+        <button class="debug-btn debug-btn-primary" bindtap="testCanvasDraw">🎨 测试Canvas绘制</button>
+        <button class="debug-btn debug-btn-secondary" bindtap="testChartClickArea">👆 测试图表点击区域</button>
       </view>
     </view>
 

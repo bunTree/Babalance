@@ -17,6 +17,7 @@ Page({
 
     // 样式控制
     containerClass: 'container-default', // 默认粉色背景
+    containerStyle: '--status-bar-height: 88rpx;', // 状态栏高度样式
 
     // 编辑弹窗
     showEditModal: false,
@@ -55,17 +56,79 @@ Page({
   },
 
   async onLoad() {
+    // 获取设备信息，设置状态栏高度
+    try {
+      const windowInfo = wx.getWindowInfo()
+      const statusBarHeight = windowInfo.statusBarHeight || 44
+      const statusBarHeightRpx = statusBarHeight * 2 // px转rpx
+      
+      this.setData({
+        statusBarHeight: statusBarHeight,
+        containerStyle: `--status-bar-height: ${statusBarHeightRpx}rpx;`
+      })
+    } catch (error) {
+      console.error('获取设备信息失败:', error)
+      // 设置默认值
+      this.setData({
+        statusBarHeight: 44,
+        containerStyle: '--status-bar-height: 88rpx;'
+      })
+    }
+
     await this.loadBabyInfo()
     // 确保页面加载时背景色正确显示
     this.refreshDisplayTexts()
+
+    // 注册数据更新监听
+    const app = getApp()
+    this.dataUpdateCallback = async () => {
+      console.log('👶 Profile页面收到数据更新通知')
+      try {
+        await this.loadBabyInfo()
+        this.refreshDisplayTexts()
+        console.log('👶 Profile页面数据刷新完成')
+      } catch (error) {
+        console.error('👶 Profile页面数据刷新失败:', error)
+      }
+    }
+    app.onDataUpdate(this.dataUpdateCallback)
   },
 
   onShow() {
+    console.log('Profile页面显示')
     this.refreshDisplayTexts()
-    // 刷新TabBar性别色彩
+    
+    // 刷新TabBar状态和性别色彩
     setTimeout(() => {
-      this.refreshTabBarGender()
+      this.refreshTabBar()
     }, 100)
+  },
+
+  // Tab切换时的自动刷新
+  onTabSwitch() {
+    console.log('🔄 Profile页面Tab切换刷新')
+    this.loadBabyInfo()
+  },
+
+  onUnload() {
+    // 页面卸载时移除监听器
+    const app = getApp()
+    if (this.dataUpdateCallback) {
+      app.offDataUpdate(this.dataUpdateCallback)
+    }
+  },
+
+  // 刷新TabBar状态
+  refreshTabBar() {
+    try {
+      if (typeof this.getTabBar === 'function' && this.getTabBar()) {
+        this.getTabBar().setSelected()
+        this.getTabBar().refreshGender()
+        console.log('🔄 TabBar状态已刷新')
+      }
+    } catch (error) {
+      console.error('刷新TabBar状态失败:', error)
+    }
   },
 
   // 加载宝宝信息
@@ -168,65 +231,367 @@ Page({
     })
   },
 
-  // 更换头像
+  // 更换头像 - 完整的上传流程
   async changeAvatar() {
     try {
-      wx.showLoading({
-        title: '选择头像中...',
-        mask: true
-      })
+      // 1. 选择图片
+      const tempFilePath = await this.selectImage()
+      if (!tempFilePath) return
+      
+      // 2. 验证图片
+      await this.validateImage(tempFilePath)
+      
+      // 3. 压缩图片（暂时跳过压缩，直接使用原图）
+      const compressedPath = tempFilePath // await this.compressImage(tempFilePath)
+      
+      // 4. 清理旧头像释放空间
+      await this.cleanupOldAvatar()
+      
+      // 5. 上传头像（云存储优先，本地存储降级）
+      const savedPath = await this.uploadAvatarWithFallback(compressedPath)
+      
+      // 6. 更新宝宝信息
+      await this.updateBabyInfo('avatar', savedPath)
+      
+      console.log('✅ 头像上传完成:', savedPath)
+      
+    } catch (error) {
+      console.error('❌ 更换头像失败:', error)
+      wx.hideLoading()
+      
+      // 根据错误类型显示不同提示
+      if (error.message.includes('用户取消')) {
+        return // 用户取消，不显示错误
+      } else if (error.message.includes('文件类型')) {
+        wx.showToast({
+          title: '请选择图片文件',
+          icon: 'none'
+        })
+      } else if (error.message.includes('文件大小')) {
+        wx.showToast({
+          title: '图片文件过大',
+          icon: 'none'
+        })
+      } else {
+        wx.showToast({
+          title: '头像设置失败，请重试',
+          icon: 'none'
+        })
+      }
+    }
+  },
 
+  // 选择图片
+  async selectImage() {
+    wx.showLoading({
+      title: '选择头像中...',
+      mask: true
+    })
+    
+    try {
       const res = await new Promise((resolve, reject) => {
         wx.chooseImage({
           count: 1,
-          sizeType: ['compressed'],
+          sizeType: ['original', 'compressed'],
           sourceType: ['camera', 'album'],
           success: resolve,
           fail: reject
         })
       })
-
+      
       const tempFilePath = res.tempFilePaths[0]
-      console.log('📷 选择的临时头像路径:', tempFilePath)
+      console.log('📷 选择的图片路径:', tempFilePath)
+      return tempFilePath
+      
+    } catch (error) {
+      if (error.errMsg && error.errMsg.includes('cancel')) {
+        throw new Error('用户取消选择')
+      }
+      throw new Error('选择图片失败')
+    } finally {
+      wx.hideLoading()
+    }
+  },
 
-      let savedPath
+  // 验证图片
+  async validateImage(tempFilePath) {
+    // 验证文件类型
+    try {
+      await new Promise((resolve, reject) => {
+        wx.getImageInfo({
+          src: tempFilePath,
+          success: (res) => {
+            const allowedTypes = ['jpeg', 'jpg', 'png', 'gif', 'webp']
+            const fileType = res.type.toLowerCase()
+            
+            if (allowedTypes.includes(fileType)) {
+              resolve(res)
+            } else {
+              reject(new Error('不支持的文件类型'))
+            }
+          },
+          fail: () => reject(new Error('文件验证失败'))
+        })
+      })
+    } catch (error) {
+      throw new Error('文件类型不支持')
+    }
+    
+    // 验证文件大小
+    try {
+      await new Promise((resolve, reject) => {
+        wx.getFileInfo({
+          filePath: tempFilePath,
+          success: (res) => {
+            const maxSize = 10 * 1024 * 1024 // 10MB
+            if (res.size <= maxSize) {
+              resolve(res)
+            } else {
+              reject(new Error('文件大小超出限制'))
+            }
+          },
+          fail: () => reject(new Error('获取文件信息失败'))
+        })
+      })
+    } catch (error) {
+      throw new Error('文件大小超出限制')
+    }
+  },
+
+  // 压缩图片
+  async compressImage(src, quality = 0.8) {
+    try {
+      wx.showLoading({
+        title: '处理图片中...',
+        mask: true
+      })
+      
+      const imageInfo = await new Promise((resolve, reject) => {
+        wx.getImageInfo({
+          src: src,
+          success: resolve,
+          fail: reject
+        })
+      })
+      
+      const { width, height } = imageInfo
+      const maxSize = 800 // 最大尺寸
+      
+      // 如果图片尺寸较小，直接返回原图
+      if (width <= maxSize && height <= maxSize) {
+        console.log('📷 图片尺寸合适，无需压缩')
+        return src
+      }
+      
+      // 计算压缩后的尺寸
+      let newWidth = width
+      let newHeight = height
+      
+      if (width > height) {
+        newWidth = maxSize
+        newHeight = (height * maxSize) / width
+      } else {
+        newHeight = maxSize
+        newWidth = (width * maxSize) / height
+      }
+      
+      console.log(`📷 压缩图片: ${width}x${height} -> ${Math.round(newWidth)}x${Math.round(newHeight)}`)
+      
+      // 尝试使用新的 Canvas 2D API
       try {
-        // 尝试保存到本地存储
-        savedPath = await this.saveAvatarToLocal(tempFilePath)
-        console.log('💾 头像保存到本地路径:', savedPath)
-      } catch (error) {
-        console.warn('⚠️ 本地保存失败，使用临时路径作为备选:', error.message)
-        
-        // 如果是存储空间不足，提示用户
-        if (error.errMsg && error.errMsg.includes('exceeded the maximum size')) {
-          wx.showToast({
-            title: '存储空间不足，请清理小程序缓存',
-            icon: 'none',
-            duration: 3000
+        return await this.compressImageWithCanvas2D(src, newWidth, newHeight, quality)
+      } catch (canvas2dError) {
+        console.warn('📷 Canvas 2D API 失败，尝试旧版API:', canvas2dError)
+        // 降级到旧版 Canvas API
+        return await this.compressImageWithLegacyCanvas(src, newWidth, newHeight, quality)
+      }
+      
+    } catch (error) {
+      console.warn('📷 图片压缩失败，使用原图:', error)
+      return src
+    } finally {
+      wx.hideLoading()
+    }
+  },
+
+  // 使用 Canvas 2D API 压缩图片
+  async compressImageWithCanvas2D(src, width, height, quality) {
+    return new Promise((resolve, reject) => {
+      const query = wx.createSelectorQuery()
+      query.select('#avatarCompressCanvas')
+        .fields({ node: true, size: true })
+        .exec((res) => {
+          if (!res[0] || !res[0].node) {
+            reject(new Error('Canvas 节点获取失败'))
+            return
+          }
+          
+          const canvas = res[0].node
+          const ctx = canvas.getContext('2d')
+          
+          // 设置画布尺寸
+          canvas.width = width
+          canvas.height = height
+          
+          // 创建图片对象
+          const img = canvas.createImage()
+          img.onload = () => {
+            // 绘制图片
+            ctx.drawImage(img, 0, 0, width, height)
+            
+            // 导出图片
+            wx.canvasToTempFilePath({
+              canvas: canvas,
+              quality: quality,
+              fileType: 'jpg',
+              success: (res) => {
+                console.log('📷 Canvas 2D 压缩完成:', res.tempFilePath)
+                resolve(res.tempFilePath)
+              },
+              fail: (error) => {
+                console.error('📷 Canvas 2D 导出失败:', error)
+                reject(error)
+              }
+            })
+          }
+          img.onerror = (error) => {
+            console.error('📷 图片加载失败:', error)
+            reject(error)
+          }
+          img.src = src
+        })
+    })
+  },
+
+  // 使用旧版 Canvas API 压缩图片（降级方案）
+  async compressImageWithLegacyCanvas(src, width, height, quality) {
+    const canvasId = 'avatarCompressCanvas'
+    const ctx = wx.createCanvasContext(canvasId)
+    
+    return new Promise((resolve) => {
+      ctx.drawImage(src, 0, 0, width, height)
+      ctx.draw(false, () => {
+        // 等待绘制完成后再导出
+        setTimeout(() => {
+          wx.canvasToTempFilePath({
+            canvasId: canvasId,
+            width: width,
+            height: height,
+            destWidth: width,
+            destHeight: height,
+            quality: quality,
+            fileType: 'jpg',
+            success: (res) => {
+              console.log('📷 旧版Canvas压缩完成:', res.tempFilePath)
+              resolve(res.tempFilePath)
+            },
+            fail: (error) => {
+              console.warn('📷 旧版Canvas压缩失败，使用原图:', error)
+              resolve(src)
+            }
           })
-          return
-        }
-        
-        // 使用临时文件路径作为备选（注意：这只是临时方案）
-        savedPath = tempFilePath
-        console.log('📷 使用临时路径作为备选:', savedPath)
+        }, 300)
+      })
+    })
+  },
+
+  // 上传头像（多重降级策略）
+  async uploadAvatarWithFallback(tempFilePath) {
+    const strategies = [
+      {
+        name: '云存储',
+        handler: () => this.saveAvatarToCloud(tempFilePath),
+        fallback: true
+      },
+      {
+        name: '本地存储',
+        handler: () => this.saveAvatarToLocal(tempFilePath),
+        fallback: true
+      },
+      {
+        name: '文字头像',
+        handler: () => Promise.resolve(''),
+        fallback: false
+      }
+    ]
+    
+    for (const strategy of strategies) {
+      try {
+        console.log(`🔄 尝试${strategy.name}...`)
+        const result = await strategy.handler()
         
         wx.showToast({
-          title: '头像已设置（临时）',
-          icon: 'success',
-          duration: 2000
+          title: `头像设置成功(${strategy.name})`,
+          icon: 'success'
         })
+        
+        console.log(`✅ ${strategy.name}成功:`, result)
+        return result
+        
+      } catch (error) {
+        console.error(`❌ ${strategy.name}失败:`, error)
+        
+        if (!strategy.fallback) {
+          throw error
+        }
+        
+        // 继续尝试下一个策略
+        continue
       }
+    }
+    
+    throw new Error('所有上传策略都失败了')
+  },
 
-      // 更新宝宝信息
-      await this.updateBabyInfo('avatar', savedPath)
-
-    } catch (error) {
-      console.error('❌ 更换头像失败:', error)
-      wx.showToast({
-        title: error.message || '更换头像失败',
-        icon: 'none'
+  // 保存头像到云存储
+  async saveAvatarToCloud(tempFilePath) {
+    try {
+      wx.showLoading({
+        title: '上传到云端...',
+        mask: true
       })
+      
+      // 获取app实例和openid
+      const app = getApp()
+      const openid = app.globalData.openid
+      
+      if (!openid) {
+        throw new Error('未获取到用户标识')
+      }
+      
+      // 生成云端文件路径
+      const timestamp = Date.now()
+      const cloudPath = `avatars/${openid}_${timestamp}.jpg`
+      
+      console.log('☁️ 开始上传到云存储:', cloudPath)
+      
+      // 上传到云存储
+      const result = await new Promise((resolve, reject) => {
+        const uploadTask = wx.cloud.uploadFile({
+          cloudPath: cloudPath,
+          filePath: tempFilePath,
+          success: resolve,
+          fail: reject
+        })
+        
+        // 监听上传进度
+        uploadTask.onProgressUpdate((res) => {
+          const progress = Math.round(res.progress)
+          console.log(`☁️ 上传进度: ${progress}%`)
+          
+          wx.showLoading({
+            title: `上传中 ${progress}%`,
+            mask: true
+          })
+        })
+      })
+      
+      console.log('☁️ 云存储上传成功:', result.fileID)
+      return result.fileID
+      
+    } catch (error) {
+      console.error('☁️ 云存储上传失败:', error)
+      throw error
     } finally {
       wx.hideLoading()
     }
@@ -235,20 +600,11 @@ Page({
   // 保存头像到本地存储
   async saveAvatarToLocal(tempFilePath) {
     try {
-      wx.showLoading({
-        title: '保存头像中...',
-        mask: true
-      })
-
-      // 清理旧的头像文件，释放存储空间
-      await this.cleanupOldAvatar()
-
-      // 生成唯一的文件名
+      // 生成简单的文件名（避免过长）
       const timestamp = Date.now()
-      const random = Math.random().toString(36).substr(2, 9)
-      const fileName = `avatar_${timestamp}_${random}.jpg`
+      const fileName = `avatar_${timestamp}.jpg`
       
-      // 使用新的文件系统API保存到用户目录
+      // 使用文件系统API保存到用户目录
       const fs = wx.getFileSystemManager()
       const userDir = `${wx.env.USER_DATA_PATH}/avatars`
       const savedPath = `${userDir}/${fileName}`
@@ -256,9 +612,14 @@ Page({
       // 确保目录存在
       try {
         fs.mkdirSync(userDir, true)
+        console.log('📁 头像目录创建成功')
       } catch (e) {
-        // 目录可能已存在，忽略错误
-        console.log('📁 目录已存在或创建失败:', e)
+        // 目录可能已存在，检查是否真的存在
+        if (!e.errMsg || !e.errMsg.includes('file already exists')) {
+          console.error('📁 目录创建失败:', e)
+          throw new Error('无法创建头像目录')
+        }
+        console.log('📁 头像目录已存在')
       }
 
       // 保存文件
@@ -281,8 +642,6 @@ Page({
     } catch (error) {
       console.error('❌ 保存头像到本地失败:', error)
       throw error
-    } finally {
-      wx.hideLoading()
     }
   },
 
@@ -290,16 +649,26 @@ Page({
   async cleanupOldAvatar() {
     try {
       const oldAvatar = this.data.babyInfo.avatar
-      if (!oldAvatar || oldAvatar === '/images/default-avatar.png') {
+      if (!oldAvatar || oldAvatar.startsWith('/images/') || oldAvatar.startsWith('data:')) {
+        console.log('🗑️ 无需清理的头像路径:', oldAvatar)
         return
       }
 
       const fs = wx.getFileSystemManager()
       
-      // 处理旧的 wxfile:// 格式文件
-      if (oldAvatar.startsWith('wxfile://')) {
+      // 处理云存储文件
+      if (oldAvatar.startsWith('cloud://')) {
         try {
-          await new Promise((resolve, reject) => {
+          await this.deleteCloudFile(oldAvatar)
+        } catch (e) {
+          console.log('🗑️ 清理云存储头像文件异常:', e)
+        }
+      }
+      
+      // 处理旧的 wxfile:// 格式文件
+      else if (oldAvatar.startsWith('wxfile://')) {
+        try {
+          await new Promise((resolve) => {
             wx.removeSavedFile({
               filePath: oldAvatar,
               success: () => {
@@ -317,10 +686,10 @@ Page({
         }
       }
       
-      // 处理新的用户目录文件
+      // 处理用户目录文件
       else if (oldAvatar.includes(wx.env.USER_DATA_PATH)) {
         try {
-          await new Promise((resolve, reject) => {
+          await new Promise((resolve) => {
             fs.unlink({
               filePath: oldAvatar,
               success: () => {
@@ -338,7 +707,7 @@ Page({
         }
       }
 
-      // 清理整个头像目录中的旧文件（保留最新的几个）
+      // 清理整个头像目录中的旧文件（只保留最新的1个）
       await this.cleanupAvatarDirectory()
       
     } catch (error) {
@@ -346,16 +715,33 @@ Page({
     }
   },
 
-  // 清理头像目录，只保留最新的几个文件
+  // 删除云存储文件
+  async deleteCloudFile(fileID) {
+    try {
+      const result = await wx.cloud.deleteFile({
+        fileList: [fileID]
+      })
+      
+      if (result.fileList && result.fileList[0] && result.fileList[0].status === 0) {
+        console.log('🗑️ 云存储文件删除成功:', fileID)
+      } else {
+        console.log('🗑️ 云存储文件删除失败:', result)
+      }
+    } catch (error) {
+      console.error('🗑️ 删除云存储文件异常:', error)
+    }
+  },
+
+  // 清理头像目录，只保留最新的1个文件
   async cleanupAvatarDirectory() {
     try {
       const fs = wx.getFileSystemManager()
       const userDir = `${wx.env.USER_DATA_PATH}/avatars`
       
-      const files = await new Promise((resolve, reject) => {
+      const files = await new Promise((resolve) => {
         fs.readdir({
           dirPath: userDir,
-          success: (res) => resolve(res.files),
+          success: (res) => resolve(res.files || []),
           fail: (error) => {
             console.log('📁 读取头像目录失败:', error)
             resolve([])
@@ -363,50 +749,35 @@ Page({
         })
       })
 
-      // 如果文件数量超过3个，删除最旧的文件
-      if (files.length > 3) {
-        const fileStats = []
+      console.log(`📁 头像目录文件数量: ${files.length}`)
+
+      // 如果文件数量超过1个，删除除最新文件外的所有文件
+      if (files.length > 1) {
+        // 按文件名排序（文件名包含时间戳，可以简单排序）
+        files.sort()
         
-        // 获取文件信息
-        for (const file of files) {
-          try {
-            const filePath = `${userDir}/${file}`
-            const stat = await new Promise((resolve, reject) => {
-              fs.stat({
-                path: filePath,
-                success: (res) => resolve({ ...res, name: file, path: filePath }),
-                fail: () => resolve(null)
-              })
-            })
-            if (stat) {
-              fileStats.push(stat)
-            }
-          } catch (e) {
-            console.log('📊 获取文件信息失败:', e)
-          }
-        }
+        // 保留最后一个（最新的），删除其他的
+        const filesToDelete = files.slice(0, -1)
+        console.log(`🗑️ 准备删除 ${filesToDelete.length} 个旧头像文件`)
 
-        // 按修改时间排序，删除最旧的文件
-        fileStats.sort((a, b) => a.lastModifiedTime - b.lastModifiedTime)
-        const filesToDelete = fileStats.slice(0, fileStats.length - 3)
-
-        for (const file of filesToDelete) {
+        for (const fileName of filesToDelete) {
           try {
-            await new Promise((resolve, reject) => {
+            const filePath = `${userDir}/${fileName}`
+            await new Promise((resolve) => {
               fs.unlink({
-                filePath: file.path,
+                filePath: filePath,
                 success: () => {
-                  console.log('🗑️ 清理旧头像文件:', file.name)
+                  console.log('🗑️ 清理旧头像文件:', fileName)
                   resolve()
                 },
                 fail: (error) => {
-                  console.log('🗑️ 删除文件失败:', error)
+                  console.log('🗑️ 删除文件失败:', fileName, error)
                   resolve()
                 }
               })
             })
           } catch (e) {
-            console.log('🗑️ 删除文件异常:', e)
+            console.log('🗑️ 删除文件异常:', fileName, e)
           }
         }
       }
@@ -420,30 +791,76 @@ Page({
     console.error('❌ 头像加载失败:', e.detail)
     console.log('🔄 使用默认头像')
     
-    // 如果当前头像不是默认头像，则重置为默认头像
-    if (this.data.babyInfo.avatar && this.data.babyInfo.avatar !== '/images/default-avatar.png') {
+    const brokenPath = this.data.babyInfo.avatar
+    
+    // 如果是云存储文件，尝试获取临时链接
+    if (brokenPath && brokenPath.startsWith('cloud://')) {
+      this.tryGetCloudFileUrl(brokenPath)
+      return
+    }
+    
+    // 如果当前头像不是默认状态，则重置为默认状态（无头像，显示文字）
+    if (brokenPath) {
       // 清理损坏的头像文件
-      this.cleanupBrokenAvatar(this.data.babyInfo.avatar)
+      this.cleanupBrokenAvatar(brokenPath)
       
       this.setData({
-        'babyInfo.avatar': '/images/default-avatar.png'
+        'babyInfo.avatar': ''  // 设置为空，使用文字头像
       })
       
       // 同步更新到存储
-      this.updateBabyInfo('avatar', '/images/default-avatar.png')
+      this.updateBabyInfo('avatar', '')
     }
+  },
+
+  // 尝试获取云文件的临时访问链接
+  async tryGetCloudFileUrl(fileID) {
+    try {
+      console.log('🔄 尝试获取云文件临时链接:', fileID)
+      
+      const result = await wx.cloud.getTempFileURL({
+        fileList: [fileID]
+      })
+      
+      if (result.fileList && result.fileList[0] && result.fileList[0].tempFileURL) {
+        const tempUrl = result.fileList[0].tempFileURL
+        console.log('✅ 获取云文件临时链接成功:', tempUrl)
+        
+        // 更新头像为临时链接
+        this.setData({
+          'babyInfo.avatar': tempUrl
+        })
+        
+        return
+      }
+    } catch (error) {
+      console.error('❌ 获取云文件临时链接失败:', error)
+    }
+    
+    // 如果获取临时链接失败，使用文字头像
+    this.setData({
+      'babyInfo.avatar': ''
+    })
+    
+    // 清理无效的云文件引用
+    this.cleanupBrokenAvatar(fileID)
   },
 
   // 清理损坏的头像文件
   async cleanupBrokenAvatar(brokenPath) {
     try {
-      if (!brokenPath || brokenPath === '/images/default-avatar.png') {
-        return
+      if (!brokenPath || brokenPath.startsWith('/images/') || brokenPath.startsWith('data:')) {
+        return  // 跳过默认路径和base64数据
       }
 
       const fs = wx.getFileSystemManager()
       
-      if (brokenPath.startsWith('wxfile://')) {
+      // 处理云存储文件
+      if (brokenPath.startsWith('cloud://')) {
+        await this.deleteCloudFile(brokenPath)
+      }
+      // 处理本地文件
+      else if (brokenPath.startsWith('wxfile://')) {
         wx.removeSavedFile({
           filePath: brokenPath,
           success: () => console.log('🗑️ 清理损坏头像文件(wxfile):', brokenPath),
@@ -542,6 +959,9 @@ Page({
         if (field === 'gender') {
           this.refreshTabBarGender()
         }
+
+        // 触发全局数据更新通知，刷新其他页面
+        app.notifyDataUpdate()
         
         // 显示成功提示（app.saveBabyInfo已经处理了提示）
         console.log('✅ 宝宝信息保存成功')

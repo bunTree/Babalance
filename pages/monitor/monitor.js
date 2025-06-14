@@ -138,7 +138,19 @@ Page({
     tooltipValues: [],
     
     // 日期限制
-    maxDate: new Date().toISOString().split('T')[0]  // 今天的日期
+    maxDate: new Date().toISOString().split('T')[0],  // 今天的日期
+    
+    // 图表滑动相关
+    chartScrollable: false,  // 是否可滑动
+    chartScrollLeft: 0,      // 滑动位置
+    chartWidth: 750,         // 图表宽度（rpx转px）
+    chartHeight: 400,        // 图表高度（rpx转px）
+    
+    // 月份导航相关（全部模式）
+    monthNavigationVisible: false,  // 是否显示月份导航
+    currentDisplayMonth: 0,         // 当前显示的月份索引
+    totalMonths: 13,               // 总月份数（0-12月）
+    monthlyChartData: []           // 月度图表数据
   },
 
   // 标准化性别值 (兼容不同的性别表示方式)
@@ -251,6 +263,14 @@ Page({
     app.onDataUpdate(this.dataUpdateCallback)
   },
 
+  onReady() {
+    console.log('📊 页面渲染完成，准备初始化图表')
+    // 页面渲染完成后，延迟一点时间确保DOM完全准备好
+    setTimeout(() => {
+      this.initChart()
+    }, 200)
+  },
+
   onShow() {
     console.log('📊 Monitor页面显示')
     
@@ -274,6 +294,12 @@ Page({
     }
   },
 
+  // Tab切换时的自动刷新
+  onTabSwitch() {
+    console.log('🔄 Monitor页面Tab切换刷新')
+    this.loadData()
+  },
+
   onUnload() {
     // 页面卸载时移除监听器
     const app = getApp()
@@ -292,6 +318,7 @@ Page({
       const normalizedGender = this.normalizeGender(babyInfo.gender)
       
       console.log('📊 加载宝宝信息:', babyInfo, '性别主题:', normalizedGender)
+      console.log('🖼️ 头像信息:', babyInfo.avatar)
       
       // 计算性别文本和年龄文本
       const genderText = this.getGenderText(babyInfo.gender)
@@ -323,6 +350,11 @@ Page({
         this.updateCurrentMetricDisplay()
         
         console.log('📊 数据更新完成')
+        
+        // 数据更新完成后，确保图表正确初始化
+        setTimeout(() => {
+          this.updateChart()
+        }, 150)
       } else {
         console.log('📊 暂无数据')
         // 重置指标为默认值
@@ -342,6 +374,11 @@ Page({
         
         // 更新当前指标显示
         this.updateCurrentMetricDisplay()
+        
+        // 即使没有数据也要初始化图表显示空状态
+        setTimeout(() => {
+          this.updateChart()
+        }, 150)
       }
       
     } catch (error) {
@@ -1395,6 +1432,12 @@ Page({
   updateChartData(records) {
     console.log('📊 开始更新图表数据，输入记录:', records)
     
+    // 对于"全部"模式，使用特殊的月度滑动处理
+    if (this.data.timeRange === 'all') {
+      this.updateAllModeChartData(records)
+      return
+    }
+    
     const filteredRecords = this.filterRecordsByTimeRange(records)
     console.log('📊 过滤后的记录:', filteredRecords)
     
@@ -1451,14 +1494,67 @@ Page({
     // 创建chartData的备份，防止意外修改
     const chartDataBackup = JSON.parse(JSON.stringify(chartData))
     
-    // 收集所有实际数据的月龄，用于生成WHO百分位曲线的范围
-    const dataAgeMonths = []
+    // 根据时间范围生成完整的时间轴
+    const timeRange = this.data.timeRange || '30'
+    let timeAxisDays = 30 // 默认30天
     
-    // 先处理实际数据，收集月龄信息
-    filteredRecords.forEach((record, index) => {
-      const label = this.formatDateForChart(record.date)
+    if (timeRange === '7') {
+      timeAxisDays = 7
+    } else if (timeRange === '30') {
+      timeAxisDays = 30
+    } else if (timeRange === 'all') {
+      // 对于"全部"选项，如果有数据则使用数据范围，否则默认30天
+      if (filteredRecords && filteredRecords.length > 0) {
+        const dates = filteredRecords.map(r => new Date(r.date)).sort((a, b) => a - b)
+        const daysDiff = Math.ceil((dates[dates.length - 1] - dates[0]) / (1000 * 60 * 60 * 24))
+        timeAxisDays = Math.max(30, daysDiff + 5) // 至少30天，或数据范围+5天
+      } else {
+        timeAxisDays = 30
+      }
+    }
+    
+    console.log('📊 时间轴范围:', timeAxisDays, '天，基于时间范围:', timeRange)
+    
+    // 生成完整的时间轴（从今天往前推）
+    const today = new Date()
+    const timeLabels = []
+    const dataMap = new Map() // 用于快速查找实际数据
+    
+    // 先将实际数据按日期建立映射
+    filteredRecords.forEach(record => {
+      const dateKey = record.date
+      dataMap.set(dateKey, record)
+    })
+    
+    // 生成完整的时间轴和对应的数据数组
+    for (let i = timeAxisDays - 1; i >= 0; i--) {
+      const date = new Date(today)
+      date.setDate(today.getDate() - i)
+      const dateStr = date.toISOString().split('T')[0]
+      const label = this.formatDateForChart(dateStr)
       
-      // 计算记录时宝宝的月龄
+      timeLabels.push(label)
+      
+      // 检查这个日期是否有实际数据
+      const actualData = dataMap.get(dateStr)
+      
+      // 为每个指标添加数据点（有数据则填入，无数据则为null）
+      chartData.weight.labels.push(label)
+      chartData.weight.values.push(actualData && actualData.weight ? parseFloat(actualData.weight) : null)
+      
+      chartData.height.labels.push(label)
+      chartData.height.values.push(actualData && actualData.height ? parseFloat(actualData.height) : null)
+      
+      chartData.head.labels.push(label)
+      chartData.head.values.push(actualData && actualData.headCircumference ? parseFloat(actualData.headCircumference) : null)
+    }
+    
+    console.log('📊 生成完整时间轴，共', timeLabels.length, '个时间点')
+    console.log('📊 实际数据点数:', filteredRecords.length)
+    
+    // 收集有实际数据的月龄，用于生成WHO百分位曲线
+    const dataAgeMonths = []
+    filteredRecords.forEach(record => {
       let ageInMonths = 0
       if (babyBirthday && record.date) {
         try {
@@ -1478,73 +1574,71 @@ Page({
           ageInMonths = this.calculateAgeInMonths(babyBirthday)
         }
       } else {
-        // 如果没有生日信息，使用默认月龄（比如2个月，对应测试数据）
-        ageInMonths = 2
-        console.log('📊 ⚠️ 没有生日信息，使用默认月龄:', ageInMonths)
+        ageInMonths = 2 // 默认月龄
       }
       
-      console.log(`📊 处理第${index + 1}条记录:`, {
-        date: record.date,
-        ageInMonths: ageInMonths,
-        weight: record.weight,
-        height: record.height,
-        headCircumference: record.headCircumference
-      })
-      
-      // 为有数据的指标添加数据点
-      if (record.weight) {
-        chartData.weight.labels.push(label)
-        chartData.weight.values.push(parseFloat(record.weight))
+      if (!dataAgeMonths.includes(ageInMonths)) {
         dataAgeMonths.push(ageInMonths)
-        console.log('📊 添加体重数据:', parseFloat(record.weight))
-      }
-      
-      if (record.height) {
-        chartData.height.labels.push(label)
-        chartData.height.values.push(parseFloat(record.height))
-        if (!dataAgeMonths.includes(ageInMonths)) {
-          dataAgeMonths.push(ageInMonths)
-        }
-        console.log('📊 添加身高数据:', parseFloat(record.height))
-      }
-      
-      if (record.headCircumference) {
-        chartData.head.labels.push(label)
-        chartData.head.values.push(parseFloat(record.headCircumference))
-        if (!dataAgeMonths.includes(ageInMonths)) {
-          dataAgeMonths.push(ageInMonths)
-        }
-        console.log('📊 添加头围数据:', parseFloat(record.headCircumference))
       }
     })
     
-    // 确定WHO百分位曲线的范围：从最小月龄-1到最大月龄+1，确保有足够的上下文
-    if (dataAgeMonths.length === 0) {
-      console.log('📊 ⚠️ 没有有效的数据月龄，跳过WHO百分位数据生成')
-      this.setData({ chartData }, () => {
-        console.log('📊 图表数据已设置到页面状态（无WHO数据）')
-        setTimeout(() => {
-          this.drawChart()
-        }, 100)
-      })
-      return
+    // 基于完整时间轴生成WHO百分位曲线
+    // 计算时间轴对应的月龄范围
+    let minAge = 0
+    let maxAge = 12 // 默认范围
+    
+    if (babyBirthday) {
+      // 计算时间轴起始和结束日期对应的月龄
+      const startDate = new Date(today)
+      startDate.setDate(today.getDate() - (timeAxisDays - 1))
+      const endDate = today
+      
+      const birthDate = new Date(babyBirthday)
+      
+      // 计算起始月龄
+      let startMonths = (startDate.getFullYear() - birthDate.getFullYear()) * 12
+      startMonths += startDate.getMonth() - birthDate.getMonth()
+      if (startDate.getDate() < birthDate.getDate()) {
+        startMonths--
+      }
+      
+      // 计算结束月龄
+      let endMonths = (endDate.getFullYear() - birthDate.getFullYear()) * 12
+      endMonths += endDate.getMonth() - birthDate.getMonth()
+      if (endDate.getDate() < birthDate.getDate()) {
+        endMonths--
+      }
+      
+      minAge = Math.max(0, startMonths)
+      maxAge = Math.max(minAge + 1, endMonths)
+    } else if (dataAgeMonths.length > 0) {
+      // 如果没有生日但有数据，使用数据月龄范围
+      minAge = Math.max(0, Math.min(...dataAgeMonths) - 1)
+      maxAge = Math.max(...dataAgeMonths) + 1
     }
     
-    const minAge = Math.max(0, Math.min(...dataAgeMonths) - 1)
-    const maxAge = Math.max(...dataAgeMonths) + 1
-    
     console.log('📊 WHO曲线范围:', minAge, '-', maxAge, '个月，基于数据月龄:', dataAgeMonths)
+    // 在访问chartData属性之前，先确保对象存在
+    if (!chartData || typeof chartData !== 'object') {
+      console.error('📊 ❌ chartData对象无效，重新创建')
+      chartData = {
+        weight: { labels: [], values: [], percentiles: { P3: [], P15: [], P50: [], P85: [], P97: [] } },
+        height: { labels: [], values: [], percentiles: { P3: [], P15: [], P50: [], P85: [], P97: [] } },
+        head: { labels: [], values: [], percentiles: { P3: [], P15: [], P50: [], P85: [], P97: [] } }
+      }
+    }
+    
     console.log('📊 chartData结构检查:', {
-      weight: !!chartData.weight,
-      height: !!chartData.height,
-      head: !!chartData.head,
-      weightPercentiles: !!(chartData.weight && chartData.weight.percentiles),
-      heightPercentiles: !!(chartData.height && chartData.height.percentiles),
-      headPercentiles: !!(chartData.head && chartData.head.percentiles)
+      weight: !!(chartData && chartData.weight),
+      height: !!(chartData && chartData.height),
+      head: !!(chartData && chartData.head),
+      weightPercentiles: !!(chartData && chartData.weight && chartData.weight.percentiles),
+      heightPercentiles: !!(chartData && chartData.height && chartData.height.percentiles),
+      headPercentiles: !!(chartData && chartData.head && chartData.head.percentiles)
     })
     
     // 确保chartData对象完整性
-    ['weight', 'height', 'head'].forEach(type => {
+    for (const type of ['weight', 'height', 'head']) {
       if (!chartData[type]) {
         console.log(`📊 ⚠️ 修复缺失的chartData[${type}]`)
         chartData[type] = {
@@ -1561,11 +1655,12 @@ Page({
           P3: [], P15: [], P50: [], P85: [], P97: []
         }
       }
-    })
+    }
     
     // 为每个指标生成WHO百分位数据
     try {
-      ['weight', 'height', 'head'].forEach(type => {
+      // 使用for循环替代forEach，避免return语句的问题
+      for (const type of ['weight', 'height', 'head']) {
         console.log(`📊 处理指标类型: ${type}`)
         console.log(`📊 chartData类型:`, typeof chartData)
         console.log(`📊 chartData是否为null:`, chartData === null)
@@ -1581,35 +1676,83 @@ Page({
           }
         }
         
+        // 再次检查chartData的完整性
+        if (!chartData || typeof chartData !== 'object') {
+          console.error(`📊 ❌ chartData仍然无效，跳出循环`)
+          break
+        }
+        
         console.log(`📊 chartData[${type}]存在:`, !!chartData[type])
         console.log(`📊 chartData完整结构:`, Object.keys(chartData))
         
         // 确保chartData[type]存在
         if (!chartData[type]) {
           console.log(`📊 ⚠️ chartData[${type}]不存在，跳过`)
-          return
+          continue
         }
         
-        const hasData = chartData[type] && chartData[type].values && chartData[type].values.length > 0
-        if (hasData) {
-          // 确保percentiles对象存在
-          if (!chartData[type].percentiles) {
-            console.log(`📊 ⚠️ chartData[${type}].percentiles不存在，跳过`)
-            return
+        // 再次检查chartData[type]的完整性
+        if (!chartData[type] || typeof chartData[type] !== 'object') {
+          console.log(`📊 ⚠️ chartData[${type}]不是有效对象，跳过`)
+          continue
+        }
+        
+        // 确保percentiles对象存在
+        if (!chartData[type].percentiles) {
+          console.log(`📊 ⚠️ chartData[${type}].percentiles不存在，跳过`)
+          continue
+        }
+        
+        // 为完整的时间轴生成WHO百分位曲线
+        // 为每个时间点计算对应的月龄和WHO百分位值
+        for (let i = 0; i < timeLabels.length; i++) {
+          // 计算当前时间点对应的日期（从timeAxisDays天前到今天）
+          const daysFromToday = timeAxisDays - 1 - i // i=0时是最早的时间点
+          const date = new Date(today)
+          date.setDate(today.getDate() - daysFromToday)
+          
+          let ageInMonths = 0
+          if (babyBirthday) {
+            const birthDate = new Date(babyBirthday)
+            
+            // 使用更精确的月龄计算，包含小数部分
+            let months = (date.getFullYear() - birthDate.getFullYear()) * 12
+            months += date.getMonth() - birthDate.getMonth()
+            
+            // 计算日期差异的小数部分
+            const daysDiff = date.getDate() - birthDate.getDate()
+            const daysInMonth = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate()
+            const dayFraction = daysDiff / daysInMonth
+            
+            ageInMonths = Math.max(0, months + dayFraction)
+          } else {
+            // 如果没有生日信息，使用默认月龄
+            ageInMonths = 2
           }
           
-          // 为有实际数据的指标生成WHO百分位曲线
-          for (let ageInMonths = minAge; ageInMonths <= maxAge; ageInMonths++) {
-            Object.keys(chartData[type].percentiles).forEach(percentile => {
+          // 再次检查percentiles对象的完整性
+          if (!chartData[type] || !chartData[type].percentiles) {
+            console.log(`📊 ⚠️ 在生成WHO数据时，chartData[${type}].percentiles变为无效，跳出`)
+            break
+          }
+          
+          // 为每个百分位生成数据点
+          Object.keys(chartData[type].percentiles).forEach(percentile => {
+            // 最后一次安全检查
+            if (chartData[type] && chartData[type].percentiles && chartData[type].percentiles[percentile]) {
               const value = this.getWHOPercentileValue(type, ageInMonths, percentile, babyGender)
               chartData[type].percentiles[percentile].push(value)
-            })
+            }
+          })
+          
+          // 调试信息：每5个点输出一次
+          if (i % 5 === 0) {
+            console.log(`📊 时间点${i}: 日期=${date.toISOString().split('T')[0]}, 月龄=${ageInMonths}个月`)
           }
-          console.log(`📊 为${type}生成WHO百分位数据，范围:${minAge}-${maxAge}个月`)
-        } else {
-          console.log(`📊 ${type}没有数据，跳过WHO百分位数据生成`)
         }
-      })
+        
+        console.log(`📊 为${type}生成WHO百分位数据，时间点数:${timeLabels.length}，月龄范围:${minAge}-${maxAge}个月`)
+      }
     } catch (error) {
       console.error('📊 ❌ 生成WHO百分位数据时发生错误:', error)
       console.error('📊 ❌ 错误详情:', {
@@ -1639,7 +1782,27 @@ Page({
     console.log('📊 最终图表数据:', chartData)
     console.log('📊 当前活动图表类型:', this.data.activeChartType)
     
-    this.setData({ chartData }, () => {
+    // 调试信息：输出图表数据统计
+    const activeType = this.data.activeChartType || 'weight'
+    if (chartData[activeType]) {
+      console.log(`📊 ${activeType}数据统计:`, {
+        时间点数: chartData[activeType].labels.length,
+        实际数据点: chartData[activeType].values.filter(v => v !== null).length,
+        P50范围: chartData[activeType].percentiles.P50 ? 
+          `${Math.min(...chartData[activeType].percentiles.P50).toFixed(1)} - ${Math.max(...chartData[activeType].percentiles.P50).toFixed(1)}` : '无',
+        数据完整性: {
+          labels: !!chartData[activeType].labels,
+          values: !!chartData[activeType].values,
+          percentiles: !!chartData[activeType].percentiles
+        }
+      })
+    }
+    
+    this.setData({ 
+      chartData,
+      monthNavigationVisible: false,  // 非全部模式下隐藏月份导航
+      chartScrollable: false  // 7天和30天模式不需要滑动
+    }, () => {
       console.log('📊 图表数据已设置到页面状态')
       // 延迟绘制确保数据已更新
       setTimeout(() => {
@@ -1649,6 +1812,155 @@ Page({
   },
 
   // 根据时间范围过滤记录
+  // 处理"全部"模式的月度滑动数据
+  updateAllModeChartData(records) {
+    console.log('📊 处理全部模式的月度滑动数据')
+    
+    const babyInfo = this.data.babyInfo || {}
+    const babyGender = this.normalizeGender(babyInfo.gender)
+    const babyBirthday = babyInfo.birthday
+    
+    if (!babyBirthday) {
+      console.log('📊 没有宝宝生日信息，使用默认WHO曲线')
+      this.generateDefaultWHOChart(babyGender, babyBirthday)
+      return
+    }
+    
+    // 生成从出生到1岁的月度数据
+    const monthlyData = this.generateMonthlyData(records, babyBirthday, babyGender)
+    
+    // 设置当前显示的月份（默认显示最新的月份）
+    const currentMonth = this.data.currentDisplayMonth || 0
+    const displayData = monthlyData[currentMonth] || monthlyData[0]
+    
+    console.log('📊 月度数据生成完成，当前显示月份:', currentMonth, '数据:', displayData)
+    
+    // 设置图表数据和滑动相关状态
+    this.setData({
+      chartData: displayData.chartData,
+      monthlyChartData: monthlyData,
+      currentDisplayMonth: currentMonth,
+      totalMonths: monthlyData.length,
+      chartScrollable: false,  // 全部模式下禁用滑动，使用月份导航
+      monthNavigationVisible: true
+    }, () => {
+      setTimeout(() => {
+        this.drawChart()
+      }, 100)
+    })
+  },
+
+  // 生成月度数据（从出生到1岁）
+  generateMonthlyData(records, babyBirthday, babyGender) {
+    const monthlyData = []
+    const birthDate = new Date(babyBirthday)
+    
+    // 生成0-12个月的数据
+    for (let monthIndex = 0; monthIndex <= 12; monthIndex++) {
+      const monthStartDate = new Date(birthDate)
+      monthStartDate.setMonth(birthDate.getMonth() + monthIndex)
+      
+      const monthEndDate = new Date(monthStartDate)
+      monthEndDate.setMonth(monthStartDate.getMonth() + 1)
+      monthEndDate.setDate(monthEndDate.getDate() - 1)
+      
+      // 过滤该月的记录
+      const monthRecords = records.filter(record => {
+        const recordDate = new Date(record.date)
+        return recordDate >= monthStartDate && recordDate <= monthEndDate
+      })
+      
+      // 生成该月的图表数据
+      const chartData = this.generateMonthChartData(monthRecords, monthStartDate, monthEndDate, monthIndex, babyGender)
+      
+      monthlyData.push({
+        monthIndex: monthIndex,
+        monthLabel: `${monthIndex}月龄`,
+        startDate: monthStartDate.toISOString().split('T')[0],
+        endDate: monthEndDate.toISOString().split('T')[0],
+        records: monthRecords,
+        chartData: chartData
+      })
+    }
+    
+    console.log('📊 生成的月度数据:', monthlyData)
+    return monthlyData
+  },
+
+  // 生成单个月份的图表数据
+  generateMonthChartData(monthRecords, monthStartDate, monthEndDate, ageInMonths, babyGender) {
+    const chartData = {
+      weight: { 
+        labels: [], 
+        values: [], 
+        percentiles: {
+          P3: [], P15: [], P50: [], P85: [], P97: []
+        }
+      },
+      height: { 
+        labels: [], 
+        values: [], 
+        percentiles: {
+          P3: [], P15: [], P50: [], P85: [], P97: []
+        }
+      },
+      head: { 
+        labels: [], 
+        values: [], 
+        percentiles: {
+          P3: [], P15: [], P50: [], P85: [], P97: []
+        }
+      }
+    }
+    
+    // 建立记录的日期映射
+    const recordMap = new Map()
+    monthRecords.forEach(record => {
+      recordMap.set(record.date, record)
+    })
+    
+    // 生成该月每天的数据点（约30天）
+    const currentDate = new Date(monthStartDate)
+    while (currentDate <= monthEndDate) {
+      const dateStr = currentDate.toISOString().split('T')[0]
+      const label = this.formatDateForChart(dateStr)
+      const actualData = recordMap.get(dateStr)
+      
+      // 计算当前日期对应的精确月龄
+      const daysDiff = Math.floor((currentDate - new Date(monthStartDate)) / (1000 * 60 * 60 * 24))
+      const preciseAge = ageInMonths + (daysDiff / 30) // 近似计算
+      
+      // 为每个指标添加数据
+      for (const type of ['weight', 'height', 'head']) {
+        chartData[type].labels.push(label)
+        
+        // 添加实际测量值
+        let actualValue = null
+        if (actualData) {
+          if (type === 'weight' && actualData.weight) {
+            actualValue = parseFloat(actualData.weight)
+          } else if (type === 'height' && actualData.height) {
+            actualValue = parseFloat(actualData.height)
+          } else if (type === 'head' && actualData.headCircumference) {
+            actualValue = parseFloat(actualData.headCircumference)
+          }
+        }
+        chartData[type].values.push(actualValue)
+        
+        // 添加WHO百分位数据
+        Object.keys(chartData[type].percentiles).forEach(percentile => {
+          const whoValue = this.getWHOPercentileValue(type, preciseAge, percentile, babyGender)
+          chartData[type].percentiles[percentile].push(whoValue)
+        })
+      }
+      
+      // 移动到下一天
+      currentDate.setDate(currentDate.getDate() + 1)
+    }
+    
+    return chartData
+  },
+
   filterRecordsByTimeRange(records) {
     if (this.data.timeRange === 'all') {
       return records
@@ -1724,11 +2036,11 @@ Page({
       }
       
       // 为每个指标生成数据
-      ['weight', 'height', 'head'].forEach(type => {
+      for (const type of ['weight', 'height', 'head']) {
         // 确保chartData[type]存在
         if (!chartData[type]) {
           console.log(`📊 ⚠️ generateDefaultWHOChart: chartData[${type}]不存在，跳过`)
-          return
+          continue
         }
         
         chartData[type].labels.push(dateLabel)
@@ -1737,20 +2049,26 @@ Page({
         // 确保percentiles对象存在
         if (!chartData[type].percentiles) {
           console.log(`📊 ⚠️ generateDefaultWHOChart: chartData[${type}].percentiles不存在，跳过`)
-          return
+          continue
         }
         
         // 生成WHO百分位数据
         Object.keys(chartData[type].percentiles).forEach(percentile => {
-          const value = this.getWHOPercentileValue(type, ageInMonths, percentile, normalizedGender)
-          chartData[type].percentiles[percentile].push(value)
+          if (chartData[type] && chartData[type].percentiles && chartData[type].percentiles[percentile]) {
+            const value = this.getWHOPercentileValue(type, ageInMonths, percentile, normalizedGender)
+            chartData[type].percentiles[percentile].push(value)
+          }
         })
-      })
+      }
     }
     
     console.log('📊 生成的默认WHO图表数据:', chartData)
     
-    this.setData({ chartData }, () => {
+    this.setData({ 
+      chartData,
+      monthNavigationVisible: this.data.timeRange === 'all',  // 根据时间范围设置导航显示
+      chartScrollable: false  // 所有模式都不需要滑动
+    }, () => {
       console.log('📊 默认WHO图表数据已设置到页面状态')
       setTimeout(() => {
         this.drawChart()
@@ -1763,11 +2081,77 @@ Page({
   // 时间范围选择
   selectTimeRange(e) {
     const range = e.currentTarget.dataset.range
-    this.setData({ timeRange: range })
+    this.setData({ 
+      timeRange: range,
+      // 重置月份导航状态
+      currentDisplayMonth: 0,
+      monthNavigationVisible: range === 'all'
+    })
     
     // 重新加载图表数据
     this.getMeasureRecords().then(records => {
       this.updateChartData(records)
+    })
+  },
+
+  // 切换到上一个月
+  previousMonth() {
+    const currentMonth = this.data.currentDisplayMonth || 0
+    const totalMonths = this.data.totalMonths || 1
+    
+    if (currentMonth > 0) {
+      const newMonth = currentMonth - 1
+      this.switchToMonthByIndex(newMonth)
+    }
+  },
+
+  // 切换到下一个月
+  nextMonth() {
+    const currentMonth = this.data.currentDisplayMonth || 0
+    const totalMonths = this.data.totalMonths || 1
+    
+    if (currentMonth < totalMonths - 1) {
+      const newMonth = currentMonth + 1
+      this.switchToMonthByIndex(newMonth)
+    }
+  },
+
+  // 通过事件切换到指定月份（从模板调用）
+  switchToMonth(e) {
+    const monthIndex = parseInt(e.currentTarget.dataset.month)
+    this.switchToMonthByIndex(monthIndex)
+  },
+
+  // 通过索引切换到指定月份（内部调用）
+  switchToMonthByIndex(monthIndex) {
+    const monthlyData = this.data.monthlyChartData
+    if (!monthlyData || !monthlyData[monthIndex]) {
+      console.log('📊 无效的月份索引:', monthIndex)
+      return
+    }
+    
+    const displayData = monthlyData[monthIndex]
+    console.log('📊 切换到月份:', monthIndex, displayData.monthLabel)
+    
+    // 轻微震动反馈
+    wx.vibrateShort({
+      type: 'light'
+    })
+    
+    this.setData({
+      currentDisplayMonth: monthIndex,
+      chartData: displayData.chartData
+    }, () => {
+      setTimeout(() => {
+        this.drawChart()
+      }, 100)
+      
+      // 显示切换提示
+      wx.showToast({
+        title: displayData.monthLabel,
+        icon: 'none',
+        duration: 1000
+      })
     })
   },
 
@@ -1957,35 +2341,95 @@ Page({
   // 初始化图表
   initChart() {
     console.log('📊 开始初始化图表')
+    
+    // 计算图表尺寸
+    const systemInfo = wx.getSystemInfoSync()
+    const containerWidth = systemInfo.windowWidth - 48 // 减去padding
+    
+    // 根据时间范围和数据点数量动态调整图表宽度
+    const activeType = this.data.activeChartType || 'weight'
+    const chartData = this.data.chartData[activeType]
+    const dataPointCount = chartData && chartData.labels ? chartData.labels.length : 30
+    const timeRange = this.data.timeRange || '30'
+    
+    let calculatedWidth = containerWidth
+    let needScroll = false
+    
+    if (timeRange === 'all') {
+      // "全部"模式：支持滑动，每个数据点至少占用15px宽度
+      const minPointWidth = 15
+      calculatedWidth = Math.max(containerWidth, dataPointCount * minPointWidth)
+      needScroll = calculatedWidth > containerWidth
+    } else {
+      // "7天"和"30天"模式：固定宽度，不支持滑动
+      calculatedWidth = containerWidth
+      needScroll = false
+    }
+    
+    const canvasHeight = 200
+    
+    console.log('📊 图表尺寸计算:', {
+      timeRange,
+      containerWidth,
+      dataPointCount,
+      calculatedWidth,
+      needScroll,
+      scrollStrategy: timeRange === 'all' ? '全部模式-支持滑动' : '固定模式-不支持滑动'
+    })
+    
+    // 更新滑动相关状态
+    this.setData({
+      chartScrollable: needScroll,
+      chartWidth: calculatedWidth,
+      chartHeight: canvasHeight,
+      chartScrollLeft: needScroll ? Math.max(0, calculatedWidth - containerWidth) : 0 // 全部模式时滚动到最右侧（最新数据）
+    })
+    
     wx.createSelectorQuery()
       .select('#growthChart')
       .fields({ node: true, size: true })
       .exec((res) => {
         console.log('📊 Canvas查询结果:', res)
-        if (res[0]) {
+        if (res && res[0] && res[0].node) {
           const canvas = res[0].node
           const ctx = canvas.getContext('2d')
           
+          if (!ctx) {
+            console.log('📊 ❌ 无法获取Canvas上下文，重试中...')
+            setTimeout(() => this.initChart(), 200)
+            return
+          }
+          
           const dpr = wx.getWindowInfo().pixelRatio
-          canvas.width = res[0].width * dpr
-          canvas.height = res[0].height * dpr
+          canvas.width = calculatedWidth * dpr
+          canvas.height = canvasHeight * dpr
           ctx.scale(dpr, dpr)
           
           this.canvas = canvas
           this.ctx = ctx
-          this.canvasWidth = res[0].width
-          this.canvasHeight = res[0].height
+          this.canvasWidth = calculatedWidth
+          this.canvasHeight = canvasHeight
           
           console.log('📊 图表初始化完成:', {
             width: this.canvasWidth,
             height: this.canvasHeight,
-            dpr: dpr
+            dpr: dpr,
+            scrollable: needScroll,
+            canvasRealSize: `${canvas.width}x${canvas.height}`
           })
           
+          // 测试Canvas是否工作 - 绘制一个简单的矩形
+          ctx.fillStyle = '#ff0000'
+          ctx.fillRect(10, 10, 50, 50)
+          console.log('📊 Canvas测试矩形已绘制')
+          
           // 初始化完成后立即绘制一次
-          this.drawChart()
+          setTimeout(() => {
+            this.drawChart()
+          }, 50)
         } else {
-          console.log('📊 ❌ Canvas元素未找到')
+          console.log('📊 ❌ Canvas元素未找到，重试中...')
+          setTimeout(() => this.initChart(), 200)
         }
       })
   },
@@ -1995,10 +2439,21 @@ Page({
     console.log('📊 开始绘制图表')
     console.log('📊 Canvas上下文:', !!this.ctx)
     console.log('📊 Canvas尺寸:', this.canvasWidth, 'x', this.canvasHeight)
+    console.log('📊 Canvas对象:', !!this.canvas)
+    console.log('📊 页面数据状态:', {
+      chartData: !!this.data.chartData,
+      activeChartType: this.data.activeChartType,
+      chartDataKeys: this.data.chartData ? Object.keys(this.data.chartData) : []
+    })
     
     if (!this.ctx) {
       console.log('📊 ❌ Canvas上下文不存在，尝试重新初始化')
       this.initChart()
+      return
+    }
+    
+    if (!this.canvas) {
+      console.log('📊 ❌ Canvas对象不存在')
       return
     }
     
@@ -2166,18 +2621,77 @@ Page({
       ctx.fillText(value.toFixed(1), padding - 5, y + 3)
     }
     
-    // X轴标签
+    // X轴标签 - 均匀分布，避免重叠
     ctx.textAlign = 'center'
-    const stepX = (width - 2 * padding) / Math.max(1, labels.length - 1)
-    labels.forEach((label, i) => {
-      const x = padding + stepX * i
-      ctx.fillText(label, x, height - padding + 15)
+    ctx.font = '8px sans-serif'
+    
+    // 计算均匀分布的X轴位置
+    const chartWidth = width - 2 * padding
+    const stepX = chartWidth / Math.max(1, labels.length - 1)
+    
+    // 计算标签的估计宽度
+    const estimatedLabelWidth = 30 // 估计每个日期标签的宽度（如"6/14"）
+    const minLabelSpacing = estimatedLabelWidth + 5 // 标签之间的最小间距
+    
+    // 根据图表宽度计算最多能显示多少个标签
+    const maxLabelsCanFit = Math.max(2, Math.floor(chartWidth / minLabelSpacing))
+    
+    console.log('📊 X轴标签计算:', {
+      totalLabels: labels.length,
+      chartWidth: chartWidth,
+      stepX: stepX,
+      maxLabelsCanFit: maxLabelsCanFit,
+      minLabelSpacing: minLabelSpacing
     })
+    
+    // 如果标签数量少于或等于最大可显示数量，显示所有标签
+    if (labels.length <= maxLabelsCanFit) {
+      labels.forEach((label, index) => {
+        const x = padding + stepX * index
+        ctx.fillText(label, x, height - padding + 15)
+      })
+    } else {
+      // 否则智能选择标签显示
+      const selectedIndices = []
+      
+      // 总是显示第一个和最后一个标签
+      selectedIndices.push(0)
+      if (labels.length > 1) {
+        selectedIndices.push(labels.length - 1)
+      }
+      
+      // 在中间均匀选择其他标签
+      const remainingSlots = maxLabelsCanFit - 2 // 减去首尾两个标签
+      if (remainingSlots > 0) {
+        const step = (labels.length - 2) / (remainingSlots + 1)
+        for (let i = 1; i <= remainingSlots; i++) {
+          const index = Math.round(step * i)
+          if (index > 0 && index < labels.length - 1 && !selectedIndices.includes(index)) {
+            selectedIndices.push(index)
+          }
+        }
+      }
+      
+      // 按索引排序并显示选中的标签
+      selectedIndices.sort((a, b) => a - b)
+      selectedIndices.forEach(index => {
+        const x = padding + stepX * index
+        ctx.fillText(labels[index], x, height - padding + 15)
+      })
+      
+      console.log('📊 选择显示的标签索引:', selectedIndices)
+      console.log('📊 选择显示的标签:', selectedIndices.map(i => labels[i]))
+    }
   },
 
   // 绘制数据线
   drawLine(ctx, data, color, width, height, padding, minValue, maxValue, isDashed) {
     if (data.length === 0) return
+    
+    // 过滤出非null的数据点
+    const validData = data.map((value, index) => ({ value, index })).filter(item => item.value !== null)
+    
+    if (validData.length === 0) return
     
     ctx.strokeStyle = color
     ctx.lineWidth = 2
@@ -2188,53 +2702,46 @@ Page({
       ctx.setLineDash([])
     }
     
-    // 如果只有一个数据点，只绘制点，不绘制线
-    if (data.length === 1) {
-      const x = padding + (width - 2 * padding) / 2 // 居中显示
-      const y = height - padding - ((data[0] - minValue) / (maxValue - minValue)) * (height - 2 * padding)
-      
-      // 绘制数据点
-      if (!isDashed) {
-        ctx.fillStyle = color
-        ctx.beginPath()
-        ctx.arc(x, y, 5, 0, 2 * Math.PI) // 单个点稍大一些
-        ctx.fill()
-        
-        // 添加一个外圈强调
-        ctx.strokeStyle = color
-        ctx.lineWidth = 2
-        ctx.beginPath()
-        ctx.arc(x, y, 7, 0, 2 * Math.PI)
-        ctx.stroke()
-      }
-      return
-    }
-    
     const stepX = (width - 2 * padding) / (data.length - 1)
     
-    ctx.beginPath()
-    data.forEach((value, i) => {
-      const x = padding + stepX * i
-      const y = height - padding - ((value - minValue) / (maxValue - minValue)) * (height - 2 * padding)
+    // 绘制连接有效数据点的线段
+    if (validData.length > 1) {
+      ctx.beginPath()
+      let isFirstPoint = true
       
-      if (i === 0) {
-        ctx.moveTo(x, y)
-      } else {
-        ctx.lineTo(x, y)
-      }
-    })
-    ctx.stroke()
+      validData.forEach(({ value, index }) => {
+        const x = padding + stepX * index
+        const y = height - padding - ((value - minValue) / (maxValue - minValue)) * (height - 2 * padding)
+        
+        if (isFirstPoint) {
+          ctx.moveTo(x, y)
+          isFirstPoint = false
+        } else {
+          ctx.lineTo(x, y)
+        }
+      })
+      ctx.stroke()
+    }
     
-    // 绘制数据点
+    // 绘制数据点（只绘制有效数据点）
     if (!isDashed) {
       ctx.fillStyle = color
-      data.forEach((value, i) => {
-        const x = padding + stepX * i
+      validData.forEach(({ value, index }) => {
+        const x = padding + stepX * index
         const y = height - padding - ((value - minValue) / (maxValue - minValue)) * (height - 2 * padding)
         
         ctx.beginPath()
-        ctx.arc(x, y, 3, 0, 2 * Math.PI)
+        ctx.arc(x, y, validData.length === 1 ? 5 : 3, 0, 2 * Math.PI) // 单个点稍大一些
         ctx.fill()
+        
+        // 如果只有一个数据点，添加外圈强调
+        if (validData.length === 1) {
+          ctx.strokeStyle = color
+          ctx.lineWidth = 2
+          ctx.beginPath()
+          ctx.arc(x, y, 7, 0, 2 * Math.PI)
+          ctx.stroke()
+        }
       })
     }
   },
@@ -2274,33 +2781,21 @@ Page({
         ctx.lineWidth = percentile === 'P50' ? 2 : 1.5
         ctx.setLineDash(dashStyle)
         
-        if (data.length === 1) {
-          // 如果只有一个数据点，绘制一个水平的短线段
-          const x = padding + (width - 2 * padding) / 2 // 居中显示
-          const y = height - padding - ((data[0] - minValue) / (maxValue - minValue)) * (height - 2 * padding)
-          const lineLength = 20 // 短线段长度
+        // 绘制百分位线（连续的线）
+        const stepX = (width - 2 * padding) / Math.max(1, data.length - 1)
+        
+        ctx.beginPath()
+        data.forEach((value, i) => {
+          const x = padding + stepX * i
+          const y = height - padding - ((value - minValue) / (maxValue - minValue)) * (height - 2 * padding)
           
-          ctx.beginPath()
-          ctx.moveTo(x - lineLength / 2, y)
-          ctx.lineTo(x + lineLength / 2, y)
-          ctx.stroke()
-        } else {
-          // 多个数据点，绘制连续的线
-          const stepX = (width - 2 * padding) / Math.max(1, data.length - 1)
-          
-          ctx.beginPath()
-          data.forEach((value, i) => {
-            const x = padding + stepX * i
-            const y = height - padding - ((value - minValue) / (maxValue - minValue)) * (height - 2 * padding)
-            
-            if (i === 0) {
-              ctx.moveTo(x, y)
-            } else {
-              ctx.lineTo(x, y)
-            }
-          })
-          ctx.stroke()
-        }
+          if (i === 0) {
+            ctx.moveTo(x, y)
+          } else {
+            ctx.lineTo(x, y)
+          }
+        })
+        ctx.stroke()
         
         console.log(`📊 ✅ ${percentile}百分位线绘制完成`)
       } else {
@@ -2440,7 +2935,7 @@ Page({
     }
   },
 
-  // 根据宝宝年龄和性别获取WHO百分位值
+  // 根据宝宝年龄和性别获取WHO百分位值（使用线性插值平滑过渡）
   getWHOPercentileValue(type, ageInMonths, percentile = 'P50', gender = null) {
     // 如果没有传入性别，使用当前宝宝的性别
     if (!gender) {
@@ -2463,10 +2958,29 @@ Page({
       return 0
     }
     
-    // 限制月龄范围在0-60个月之间
-    const monthIndex = Math.max(0, Math.min(60, Math.floor(ageInMonths)))
+    const data = genderPercentiles[type][percentile]
     
-    return genderPercentiles[type][percentile][monthIndex] || genderPercentiles[type][percentile][0]
+    // 限制月龄范围在0-60个月之间
+    const clampedAge = Math.max(0, Math.min(60, ageInMonths))
+    
+    // 如果是整数月龄，直接返回对应值
+    if (clampedAge === Math.floor(clampedAge)) {
+      const monthIndex = Math.floor(clampedAge)
+      return data[monthIndex] || data[0]
+    }
+    
+    // 使用线性插值计算非整数月龄的值
+    const lowerIndex = Math.floor(clampedAge)
+    const upperIndex = Math.min(lowerIndex + 1, data.length - 1)
+    const fraction = clampedAge - lowerIndex
+    
+    const lowerValue = data[lowerIndex] || data[0]
+    const upperValue = data[upperIndex] || data[data.length - 1]
+    
+    // 线性插值
+    const interpolatedValue = lowerValue + (upperValue - lowerValue) * fraction
+    
+    return interpolatedValue
   },
 
   // 兼容旧方法，返回P50百分位值（中位数）
@@ -2559,8 +3073,9 @@ Page({
     console.log('📊 触发图表更新')
     // 延迟一下确保数据已经设置到页面状态
     setTimeout(() => {
-      this.drawChart()
-    }, 50)
+      // 重新初始化图表以更新滑动状态
+      this.initChart()
+    }, 100)
   },
 
   // 时间范围切换
@@ -2967,6 +3482,14 @@ Page({
         showTooltip: false
       })
     }, 1000)
+  },
+
+  // 图表滑动事件
+  onChartScroll(e) {
+    console.log('📊 图表滑动:', e.detail)
+    this.setData({
+      chartScrollLeft: e.detail.scrollLeft
+    })
   },
 
   // 处理图表触摸事件
@@ -3595,6 +4118,9 @@ Page({
       // 重新加载数据
       await this.loadData()
 
+      // 触发全局数据更新通知，刷新其他页面
+      this.notifyDataUpdate()
+
       wx.showToast({
         title: '记录保存成功',
         icon: 'success'
@@ -3674,5 +4200,162 @@ Page({
       console.error('云端同步失败:', error)
       throw error
     }
+  },
+
+  // 头像加载错误处理
+  onAvatarError(e) {
+    console.log('🖼️ 头像加载失败:', e.detail)
+    
+    // 清除损坏的头像路径，回退到文字头像
+    this.setData({
+      'babyInfo.avatar': ''
+    })
+    
+    // 同步更新本地存储
+    const babyInfo = wx.getStorageSync('babyInfo') || {}
+    babyInfo.avatar = ''
+    wx.setStorageSync('babyInfo', babyInfo)
+  },
+
+  // 测试Canvas绘制
+  testCanvasDraw() {
+    console.log('🧪 开始测试Canvas绘制')
+    if (!this.ctx) {
+      console.log('🧪 Canvas上下文不存在，先初始化')
+      this.initChart()
+      setTimeout(() => this.testCanvasDraw(), 500)
+      return
+    }
+
+    const ctx = this.ctx
+    const width = this.canvasWidth || 300
+    const height = this.canvasHeight || 200
+
+    console.log('🧪 Canvas尺寸:', width, 'x', height)
+
+    // 清空画布
+    ctx.clearRect(0, 0, width, height)
+
+    // 绘制背景
+    ctx.fillStyle = '#f0f0f0'
+    ctx.fillRect(0, 0, width, height)
+
+    // 绘制测试图形
+    ctx.fillStyle = '#ff6b9d'
+    ctx.fillRect(50, 50, 100, 50)
+
+    ctx.fillStyle = '#4facfe'
+    ctx.fillRect(200, 50, 100, 50)
+
+    // 绘制文字
+    ctx.fillStyle = '#333'
+    ctx.font = '16px sans-serif'
+    ctx.textAlign = 'center'
+    ctx.fillText('Canvas测试成功', width / 2, height / 2)
+
+    console.log('🧪 Canvas测试绘制完成')
+  },
+
+  // 测试图表点击区域
+  testChartClickArea() {
+    console.log('🧪 开始测试图表点击区域')
+    
+    // 模拟点击事件
+    const mockTouchEvent = {
+      touches: [{
+        clientX: 100,
+        clientY: 100
+      }],
+      detail: {
+        x: 100,
+        y: 100
+      }
+    }
+    
+    console.log('🧪 模拟触摸开始事件')
+    this.onChartTouchStart(mockTouchEvent)
+    
+    console.log('🧪 模拟触摸结束事件')
+    this.onChartTouchEnd(mockTouchEvent)
+    
+    wx.showToast({
+      title: '点击区域测试完成',
+      icon: 'success'
+    })
+  },
+
+  // 通知数据更新
+  notifyDataUpdate() {
+    console.log('🔄 Monitor页面触发全局数据更新通知')
+    try {
+      const app = getApp()
+      if (app && typeof app.notifyDataUpdate === 'function') {
+        app.notifyDataUpdate()
+      }
+    } catch (error) {
+      console.error('触发全局数据更新通知失败:', error)
+    }
+  },
+
+  // 测试自动刷新机制
+  testAutoRefresh() {
+    console.log('🧪 开始测试自动刷新机制')
+    
+    wx.showModal({
+      title: '测试自动刷新',
+      content: '这将测试以下刷新机制：\n1. Tab切换刷新\n2. 添加记录后刷新\n3. 全局数据更新通知\n\n请观察控制台日志',
+      showCancel: true,
+      cancelText: '取消',
+      confirmText: '开始测试',
+      success: (res) => {
+        if (res.confirm) {
+          this.performAutoRefreshTest()
+        }
+      }
+    })
+  },
+
+  // 执行自动刷新测试
+  async performAutoRefreshTest() {
+    try {
+      console.log('🧪 === 自动刷新测试开始 ===')
+      
+      // 测试1: Tab切换刷新
+      console.log('🧪 测试1: 模拟Tab切换刷新')
+      this.onTabSwitch()
+      
+      await this.delay(1000)
+      
+      // 测试2: 全局数据更新通知
+      console.log('🧪 测试2: 触发全局数据更新通知')
+      this.notifyDataUpdate()
+      
+      await this.delay(1000)
+      
+      // 测试3: 模拟添加记录后的刷新流程
+      console.log('🧪 测试3: 模拟添加记录后刷新')
+      await this.loadData()
+      this.notifyDataUpdate()
+      
+      console.log('🧪 === 自动刷新测试完成 ===')
+      
+      wx.showToast({
+        title: '自动刷新测试完成',
+        icon: 'success',
+        duration: 2000
+      })
+      
+    } catch (error) {
+      console.error('🧪 自动刷新测试失败:', error)
+      wx.showToast({
+        title: '测试失败',
+        icon: 'none'
+      })
+    }
+  },
+
+  // 延迟工具函数
+  delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms))
   }
 }) 
