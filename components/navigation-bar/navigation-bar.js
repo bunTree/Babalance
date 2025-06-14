@@ -59,17 +59,53 @@ Component({
   },
   lifetimes: {
     attached() {
-      const rect = wx.getMenuButtonBoundingClientRect()
-      const platform = (wx.getDeviceInfo() || wx.getSystemInfoSync()).platform
-      const isAndroid = platform === 'android'
-      const isDevtools = platform === 'devtools'
-      const { windowWidth, safeArea: { top = 0, bottom = 0 } = {} } = wx.getWindowInfo() || wx.getSystemInfoSync()
-      this.setData({
-        ios: !isAndroid,
-        innerPaddingRight: `padding-right: ${windowWidth - rect.left}px`,
-        leftWidth: `width: ${windowWidth - rect.left}px`,
-        safeAreaTop: isDevtools || isAndroid ? `height: calc(var(--height) + ${top}px); padding-top: ${top}px` : ``
-      })
+      try {
+        const rect = wx.getMenuButtonBoundingClientRect()
+        
+        // 获取设备信息
+        let platform = 'ios'
+        try {
+          platform = wx.getDeviceInfo().platform
+        } catch (error) {
+          console.warn('获取设备信息失败，尝试降级:', error)
+          try {
+            platform = wx.getSystemInfoSync().platform
+          } catch (fallbackError) {
+            console.warn('降级获取设备信息失败，使用默认值:', fallbackError)
+          }
+        }
+        
+        const isAndroid = platform === 'android'
+        const isDevtools = platform === 'devtools'
+        
+        // 获取窗口信息
+        let windowWidth = 375
+        let safeAreaTop = 0
+        
+        try {
+          const windowInfo = wx.getWindowInfo()
+          windowWidth = windowInfo.windowWidth
+          safeAreaTop = windowInfo.safeArea?.top || 0
+        } catch (error) {
+          console.warn('获取窗口信息失败，尝试降级:', error)
+          try {
+            const systemInfo = wx.getSystemInfoSync()
+            windowWidth = systemInfo.windowWidth
+            safeAreaTop = systemInfo.safeArea?.top || 0
+          } catch (fallbackError) {
+            console.warn('降级获取窗口信息失败，使用默认值:', fallbackError)
+          }
+        }
+        
+        this.setData({
+          ios: !isAndroid,
+          innerPaddingRight: `padding-right: ${windowWidth - rect.left}px`,
+          leftWidth: `width: ${windowWidth - rect.left}px`,
+          safeAreaTop: isDevtools || isAndroid ? `height: calc(var(--height) + ${safeAreaTop}px); padding-top: ${safeAreaTop}px` : ``
+        })
+      } catch (error) {
+        console.error('navigation-bar attached 失败:', error)
+      }
     },
   },
   /**

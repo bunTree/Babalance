@@ -166,25 +166,299 @@ Page({
   },
 
   // 更换头像
-  changeAvatar() {
-    const that = this
-    wx.chooseImage({
-      count: 1,
-      sizeType: ['compressed'],
-      sourceType: ['camera', 'album'],
-      success(res) {
-        const avatar = res.tempFilePaths[0]
-        that.updateBabyInfo('avatar', avatar)
-      },
-      fail(error) {
-        console.error('选择头像失败:', error)
+  async changeAvatar() {
+    try {
+      wx.showLoading({
+        title: '选择头像中...',
+        mask: true
+      })
+
+      const res = await new Promise((resolve, reject) => {
+        wx.chooseImage({
+          count: 1,
+          sizeType: ['compressed'],
+          sourceType: ['camera', 'album'],
+          success: resolve,
+          fail: reject
+        })
+      })
+
+      const tempFilePath = res.tempFilePaths[0]
+      console.log('📷 选择的临时头像路径:', tempFilePath)
+
+      let savedPath
+      try {
+        // 尝试保存到本地存储
+        savedPath = await this.saveAvatarToLocal(tempFilePath)
+        console.log('💾 头像保存到本地路径:', savedPath)
+      } catch (error) {
+        console.warn('⚠️ 本地保存失败，使用临时路径作为备选:', error.message)
+        
+        // 如果是存储空间不足，提示用户
+        if (error.errMsg && error.errMsg.includes('exceeded the maximum size')) {
+          wx.showToast({
+            title: '存储空间不足，请清理小程序缓存',
+            icon: 'none',
+            duration: 3000
+          })
+          return
+        }
+        
+        // 使用临时文件路径作为备选（注意：这只是临时方案）
+        savedPath = tempFilePath
+        console.log('📷 使用临时路径作为备选:', savedPath)
+        
         wx.showToast({
-          title: '选择头像失败',
-          icon: 'none'
+          title: '头像已设置（临时）',
+          icon: 'success',
+          duration: 2000
         })
       }
-    })
-    },
+
+      // 更新宝宝信息
+      await this.updateBabyInfo('avatar', savedPath)
+
+    } catch (error) {
+      console.error('❌ 更换头像失败:', error)
+      wx.showToast({
+        title: error.message || '更换头像失败',
+        icon: 'none'
+      })
+    } finally {
+      wx.hideLoading()
+    }
+  },
+
+  // 保存头像到本地存储
+  async saveAvatarToLocal(tempFilePath) {
+    try {
+      wx.showLoading({
+        title: '保存头像中...',
+        mask: true
+      })
+
+      // 清理旧的头像文件，释放存储空间
+      await this.cleanupOldAvatar()
+
+      // 生成唯一的文件名
+      const timestamp = Date.now()
+      const random = Math.random().toString(36).substr(2, 9)
+      const fileName = `avatar_${timestamp}_${random}.jpg`
+      
+      // 使用新的文件系统API保存到用户目录
+      const fs = wx.getFileSystemManager()
+      const userDir = `${wx.env.USER_DATA_PATH}/avatars`
+      const savedPath = `${userDir}/${fileName}`
+      
+      // 确保目录存在
+      try {
+        fs.mkdirSync(userDir, true)
+      } catch (e) {
+        // 目录可能已存在，忽略错误
+        console.log('📁 目录已存在或创建失败:', e)
+      }
+
+      // 保存文件
+      await new Promise((resolve, reject) => {
+        fs.copyFile({
+          srcPath: tempFilePath,
+          destPath: savedPath,
+          success: () => {
+            console.log('💾 文件保存成功:', savedPath)
+            resolve()
+          },
+          fail: (error) => {
+            console.error('💾 文件保存失败:', error)
+            reject(error)
+          }
+        })
+      })
+
+      return savedPath
+    } catch (error) {
+      console.error('❌ 保存头像到本地失败:', error)
+      throw error
+    } finally {
+      wx.hideLoading()
+    }
+  },
+
+  // 清理旧的头像文件
+  async cleanupOldAvatar() {
+    try {
+      const oldAvatar = this.data.babyInfo.avatar
+      if (!oldAvatar || oldAvatar === '/images/default-avatar.png') {
+        return
+      }
+
+      const fs = wx.getFileSystemManager()
+      
+      // 处理旧的 wxfile:// 格式文件
+      if (oldAvatar.startsWith('wxfile://')) {
+        try {
+          await new Promise((resolve, reject) => {
+            wx.removeSavedFile({
+              filePath: oldAvatar,
+              success: () => {
+                console.log('🗑️ 旧头像文件已清理(wxfile):', oldAvatar)
+                resolve()
+              },
+              fail: (error) => {
+                console.log('🗑️ 清理旧头像文件失败(wxfile):', error)
+                resolve() // 不阻塞流程
+              }
+            })
+          })
+        } catch (e) {
+          console.log('🗑️ 清理旧头像文件异常(wxfile):', e)
+        }
+      }
+      
+      // 处理新的用户目录文件
+      else if (oldAvatar.includes(wx.env.USER_DATA_PATH)) {
+        try {
+          await new Promise((resolve, reject) => {
+            fs.unlink({
+              filePath: oldAvatar,
+              success: () => {
+                console.log('🗑️ 旧头像文件已清理(userdata):', oldAvatar)
+                resolve()
+              },
+              fail: (error) => {
+                console.log('🗑️ 清理旧头像文件失败(userdata):', error)
+                resolve() // 不阻塞流程
+              }
+            })
+          })
+        } catch (e) {
+          console.log('🗑️ 清理旧头像文件异常(userdata):', e)
+        }
+      }
+
+      // 清理整个头像目录中的旧文件（保留最新的几个）
+      await this.cleanupAvatarDirectory()
+      
+    } catch (error) {
+      console.log('🗑️ 清理旧头像文件总体异常:', error)
+    }
+  },
+
+  // 清理头像目录，只保留最新的几个文件
+  async cleanupAvatarDirectory() {
+    try {
+      const fs = wx.getFileSystemManager()
+      const userDir = `${wx.env.USER_DATA_PATH}/avatars`
+      
+      const files = await new Promise((resolve, reject) => {
+        fs.readdir({
+          dirPath: userDir,
+          success: (res) => resolve(res.files),
+          fail: (error) => {
+            console.log('📁 读取头像目录失败:', error)
+            resolve([])
+          }
+        })
+      })
+
+      // 如果文件数量超过3个，删除最旧的文件
+      if (files.length > 3) {
+        const fileStats = []
+        
+        // 获取文件信息
+        for (const file of files) {
+          try {
+            const filePath = `${userDir}/${file}`
+            const stat = await new Promise((resolve, reject) => {
+              fs.stat({
+                path: filePath,
+                success: (res) => resolve({ ...res, name: file, path: filePath }),
+                fail: () => resolve(null)
+              })
+            })
+            if (stat) {
+              fileStats.push(stat)
+            }
+          } catch (e) {
+            console.log('📊 获取文件信息失败:', e)
+          }
+        }
+
+        // 按修改时间排序，删除最旧的文件
+        fileStats.sort((a, b) => a.lastModifiedTime - b.lastModifiedTime)
+        const filesToDelete = fileStats.slice(0, fileStats.length - 3)
+
+        for (const file of filesToDelete) {
+          try {
+            await new Promise((resolve, reject) => {
+              fs.unlink({
+                filePath: file.path,
+                success: () => {
+                  console.log('🗑️ 清理旧头像文件:', file.name)
+                  resolve()
+                },
+                fail: (error) => {
+                  console.log('🗑️ 删除文件失败:', error)
+                  resolve()
+                }
+              })
+            })
+          } catch (e) {
+            console.log('🗑️ 删除文件异常:', e)
+          }
+        }
+      }
+    } catch (error) {
+      console.log('🗑️ 清理头像目录异常:', error)
+    }
+  },
+
+  // 头像加载错误处理
+  onAvatarError(e) {
+    console.error('❌ 头像加载失败:', e.detail)
+    console.log('🔄 使用默认头像')
+    
+    // 如果当前头像不是默认头像，则重置为默认头像
+    if (this.data.babyInfo.avatar && this.data.babyInfo.avatar !== '/images/default-avatar.png') {
+      // 清理损坏的头像文件
+      this.cleanupBrokenAvatar(this.data.babyInfo.avatar)
+      
+      this.setData({
+        'babyInfo.avatar': '/images/default-avatar.png'
+      })
+      
+      // 同步更新到存储
+      this.updateBabyInfo('avatar', '/images/default-avatar.png')
+    }
+  },
+
+  // 清理损坏的头像文件
+  async cleanupBrokenAvatar(brokenPath) {
+    try {
+      if (!brokenPath || brokenPath === '/images/default-avatar.png') {
+        return
+      }
+
+      const fs = wx.getFileSystemManager()
+      
+      if (brokenPath.startsWith('wxfile://')) {
+        wx.removeSavedFile({
+          filePath: brokenPath,
+          success: () => console.log('🗑️ 清理损坏头像文件(wxfile):', brokenPath),
+          fail: (error) => console.log('🗑️ 清理损坏头像文件失败(wxfile):', error)
+        })
+      } else if (brokenPath.includes(wx.env.USER_DATA_PATH)) {
+        fs.unlink({
+          filePath: brokenPath,
+          success: () => console.log('🗑️ 清理损坏头像文件(userdata):', brokenPath),
+          fail: (error) => console.log('🗑️ 清理损坏头像文件失败(userdata):', error)
+        })
+      }
+    } catch (error) {
+      console.log('🗑️ 清理损坏头像文件异常:', error)
+    }
+  },
+
+
 
   // 编辑输入处理
   onEditInput(e) {
@@ -454,6 +728,10 @@ Page({
       // 同步到云端（b-measure集合）
       await this.syncToCloud(measureRecord)
 
+      // 通知其他页面数据更新
+      const app = getApp()
+      app.notifyDataUpdate()
+
       // 关闭弹窗
       this.hideModal()
 
@@ -511,13 +789,13 @@ Page({
       
       // 查询当天是否已有记录
       const queryResult = await collection.where({
-        openid: app.globalData.openid,
+        _openid: app.globalData.openid,
         date: measureRecord.date
       }).get()
 
       const data = {
         ...measureRecord,
-        openid: app.globalData.openid,
+        _openid: app.globalData.openid,
         updateTime: new Date()
       }
 

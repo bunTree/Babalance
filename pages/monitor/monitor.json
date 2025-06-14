@@ -2,5 +2,6 @@
   "navigationBarTitleText": "成长监测",
   "navigationStyle": "custom",
   "enablePullDownRefresh": true,
-  "backgroundTextStyle": "light"
+  "backgroundTextStyle": "light",
+  "disableScroll": false
 } 

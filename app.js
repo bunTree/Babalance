@@ -7,6 +7,33 @@ App({
     openid: null
   },
 
+  // 页面更新通知
+  updateListeners: [],
+
+  // 注册数据更新监听器
+  onDataUpdate(callback) {
+    this.updateListeners.push(callback)
+  },
+
+  // 移除数据更新监听器
+  offDataUpdate(callback) {
+    const index = this.updateListeners.indexOf(callback)
+    if (index > -1) {
+      this.updateListeners.splice(index, 1)
+    }
+  },
+
+  // 通知数据更新
+  notifyDataUpdate() {
+    this.updateListeners.forEach(callback => {
+      try {
+        callback()
+      } catch (error) {
+        console.error('数据更新通知失败:', error)
+      }
+    })
+  },
+
   onLaunch() {
     console.log('宝宝成长记录小程序启动')
     this.initApp()
@@ -79,16 +106,33 @@ App({
     console.log('小程序隐藏')
   },
 
-
-
   // 获取系统信息
   getSystemInfo() {
     try {
-      const systemInfo = wx.getSystemInfoSync()
+      // 使用新的API替代废弃的wx.getSystemInfoSync
+      const windowInfo = wx.getWindowInfo()
+      const deviceInfo = wx.getDeviceInfo()
+      const appBaseInfo = wx.getAppBaseInfo()
+      
+      // 合并系统信息
+      const systemInfo = {
+        ...windowInfo,
+        ...deviceInfo,
+        ...appBaseInfo
+      }
+      
       this.globalData.systemInfo = systemInfo
       console.log('系统信息:', systemInfo)
     } catch (error) {
       console.error('获取系统信息失败:', error)
+      // 降级使用旧API
+      try {
+        const systemInfo = wx.getSystemInfoSync()
+        this.globalData.systemInfo = systemInfo
+        console.log('系统信息(降级):', systemInfo)
+      } catch (fallbackError) {
+        console.error('降级获取系统信息也失败:', fallbackError)
+      }
     }
   },
 

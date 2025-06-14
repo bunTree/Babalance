@@ -9,6 +9,7 @@
           class="avatar" 
           src="{{babyInfo.avatar || '/images/default-avatar.png'}}" 
           mode="aspectFill"
+          binderror="onAvatarError"
         ></image>
         <view class="avatar-edit">
           <image src="/images/icons/camera.svg" style="width: 24rpx; height: 24rpx;"></image>

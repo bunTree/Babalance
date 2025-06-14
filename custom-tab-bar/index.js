@@ -58,12 +58,19 @@ Component({
       }
 
       // 检查是否已经在当前页面
-      const pages = getCurrentPages()
-      const currentPage = pages[pages.length - 1]
-      const currentPath = currentPage.route
-      
-      if (`/${currentPath}` === url) {
-        return // 已在当前页面，无需切换
+      try {
+        const pages = getCurrentPages()
+        if (pages && pages.length > 0) {
+          const currentPage = pages[pages.length - 1]
+          if (currentPage && currentPage.route) {
+            const currentPath = currentPage.route
+            if (`/${currentPath}` === url) {
+              return // 已在当前页面，无需切换
+            }
+          }
+        }
+      } catch (error) {
+        console.warn('TabBar: 获取当前页面路径失败:', error)
       }
 
       wx.switchTab({ 
@@ -79,17 +86,32 @@ Component({
     },
 
     setSelected() {
-      const pages = getCurrentPages()
-      const currentPage = pages[pages.length - 1]
-      const currentPath = currentPage.route
-      
-      const selected = this.data.list.findIndex(item => 
-        item.pagePath === `/${currentPath}`
-      )
-      
-      this.setData({
-        selected: selected >= 0 ? selected : 0
-      })
+      try {
+        const pages = getCurrentPages()
+        if (!pages || pages.length === 0) {
+          console.warn('TabBar: 无法获取当前页面')
+          return
+        }
+        
+        const currentPage = pages[pages.length - 1]
+        if (!currentPage || !currentPage.route) {
+          console.warn('TabBar: 当前页面或route未定义')
+          return
+        }
+        
+        const currentPath = currentPage.route
+        const selected = this.data.list.findIndex(item => 
+          item.pagePath === `/${currentPath}`
+        )
+        
+        this.setData({
+          selected: selected >= 0 ? selected : 0
+        })
+      } catch (error) {
+        console.error('TabBar setSelected 错误:', error)
+        // 默认选中第一个tab
+        this.setData({ selected: 0 })
+      }
     },
 
     loadBabyGender() {

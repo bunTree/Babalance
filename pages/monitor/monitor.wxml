@@ -1,162 +1,235 @@
-<!--数据查看页面-->
-<view class="container {{backgroundClass}}">
-  <!-- 状态栏占位 -->
-  <view class="status-bar" style="height: {{statusBarHeight}}px;"></view>
-
-  <!-- 主卡片容器 -->
+<!--pages/monitor/monitor.wxml-->
+<view class="container container-{{currentGender || 'default'}}" style="{{containerStyle}}">
+  <!-- 主卡片 -->
   <view class="main-card">
-    <!-- 顶部指标概览 -->
-    <view class="metrics-section {{backgroundClass}}">
-      <view class="metrics-title">最新数据</view>
-      <view class="metrics-grid">
-        <view class="metric-item" wx:for="{{metrics}}" wx:key="key">
-          <view class="metric-icon">{{item.icon}}</view>
-          <view class="metric-value">{{item.value}}</view>
-          <view class="metric-label">{{item.label}}</view>
-          <view class="metric-unit">{{item.unit}}</view>
+
+
+    <!-- 成长监测模块 -->
+    <view class="growth-module">
+      <view class="module-header">
+        <text class="module-title">成长监测</text>
+        <view class="time-selector">
+          <text class="time-option {{timeRange === '7' ? 'active' : ''}}" 
+                bindtap="selectTimeRange" data-range="7">7天</text>
+          <text class="time-option {{timeRange === '30' ? 'active' : ''}}" 
+                bindtap="selectTimeRange" data-range="30">30天</text>
+          <text class="time-option {{timeRange === 'all' ? 'active' : ''}}" 
+                bindtap="selectTimeRange" data-range="all">全部</text>
         </view>
       </view>
-      <view class="metrics-date">最后更新：{{lastUpdateDate}}</view>
-    </view>
 
-    <!-- 图表区域 -->
-    <view class="chart-section">
-      <view class="section-header">
-        <view class="section-title">成长曲线</view>
-        <view class="chart-type-tabs">
-          <view 
-            class="chart-tab {{item.active ? 'active' : ''}}"
-            wx:for="{{chartTypes}}" 
-            wx:key="key"
-            bindtap="onChartTypeChange"
-            data-type="{{item.key}}"
-          >
-            {{item.label}}
+      <!-- 宝宝简介卡片 -->
+      <view class="baby-profile-card">
+        <!-- 左侧基本信息 -->
+        <view class="profile-left">
+          <view class="baby-avatar">
+            <text class="avatar-text">{{babyInfo.name ? babyInfo.name.charAt(0) : '宝'}}</text>
+          </view>
+          <view class="baby-basic-info">
+            <text class="baby-name">{{babyInfo.name || '我的宝宝'}}</text>
+            <view class="baby-details">
+              <text class="baby-gender">{{genderText}}</text>
+              <text class="baby-age">{{ageText}}</text>
+            </view>
+            <text class="last-update">{{lastUpdateText}}</text>
           </view>
         </view>
-      </view>
-
-      <!-- 时间范围选择 -->
-      <view class="time-selector">
-        <view 
-          class="time-btn {{item.active ? 'active' : ''}}" 
-          wx:for="{{timeOptions}}" 
-          wx:key="key"
-          bindtap="onTimeChange" 
-          data-period="{{item.key}}"
-        >
-          {{item.label}}
-        </view>
-      </view>
-
-      <!-- 图表画布 -->
-      <view class="chart-container">
-        <canvas 
-          canvas-id="growthChart" 
-          class="chart-canvas"
-          bindtouchstart="touchChart"
-          bindtouchmove="touchChart"
-        ></canvas>
-      </view>
-    </view>
-
-    <!-- 智能分析 -->
-    <view class="analysis-section">
-      <view class="section-header">
-        <view class="section-icon">💡</view>
-        <view class="section-title">智能分析</view>
-      </view>
-      <view class="analysis-content">{{analysisText}}</view>
-    </view>
-
-    <!-- 历史记录 -->
-    <view class="history-section">
-      <view class="section-header">
-        <view class="section-icon">📋</view>
-        <view class="section-title">历史记录</view>
-        <view class="section-action" bindtap="viewAllRecords">查看全部</view>
-      </view>
-      <view class="records-list">
-        <view class="record-card" wx:for="{{recentRecords}}" wx:key="id">
-          <view class="record-date">{{item.date}}</view>
-          <view class="record-measurements">
-            <view class="measurement-item" wx:for="{{item.measurements}}" wx:for-item="measurement" wx:key="type">
-              <text class="measurement-label">{{measurement.label}}:</text>
-              <text class="measurement-value">{{measurement.value}} {{measurement.unit}}</text>
+        
+        <!-- 右侧指标数据 -->
+        <view class="profile-right">
+          <view class="metrics-grid">
+            <view class="metric-item {{activeChartType === 'weight' ? 'active' : ''}}" 
+                  bindtap="switchChartType" data-type="weight">
+              <text class="metric-label">体重</text>
+              <text class="metric-value">{{weightValue}}</text>
+            </view>
+            
+            <view class="metric-item {{activeChartType === 'height' ? 'active' : ''}}" 
+                  bindtap="switchChartType" data-type="height">
+              <text class="metric-label">身高</text>
+              <text class="metric-value">{{heightValue}}</text>
+            </view>
+            
+            <view class="metric-item {{activeChartType === 'head' ? 'active' : ''}}" 
+                  bindtap="switchChartType" data-type="head">
+              <text class="metric-label">头围</text>
+              <text class="metric-value">{{headValue}}</text>
             </view>
           </view>
         </view>
+      </view>
+
+      <!-- 成长曲线标题 -->
+      <view class="chart-title-section">
+        <text class="chart-main-title">成长曲线图</text>
+        <text class="chart-subtitle">{{getCurrentMetricLabel(activeChartType)}}变化趋势</text>
+      </view>
+
+      <!-- 成长曲线 -->
+      <view class="chart-container" wx:if="{{!showEditModal && !showModal}}">
+        <canvas class="chart-canvas" canvas-id="growthChart" id="growthChart" type="2d"></canvas>
+        <view class="chart-description">
+          <text class="chart-desc-text">实线显示实际测量值，彩色线条为WHO百分位曲线（P3、P15、P50、P85、P97）</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- 最近记录 -->
+    <view class="records-section">
+      <view class="section-header">
+        <text class="section-title">最近记录</text>
+        <text class="section-action" bindtap="viewAllRecords">查看全部</text>
       </view>
       
-      <!-- 空状态 -->
-      <view class="empty-state" wx:if="{{recentRecords.length === 0}}">
-        <view class="empty-icon">📊</view>
-        <view class="empty-title">暂无记录</view>
-        <view class="empty-subtitle">点击下方加号按钮开始记录宝宝的成长数据</view>
+      <view class="records-list" wx:if="{{recentRecords.length > 0}}">
+        <view class="record-item" wx:for="{{recentRecords}}" wx:key="date" bindtap="editRecord" data-record="{{item}}">
+          <view class="record-date">
+            <text class="date-text">{{item.displayDate}}</text>
+          </view>
+          <view class="record-measurements">
+            <view class="measurement-tag" wx:if="{{item.weight}}">
+              <text class="tag-label">体重</text>
+              <text class="tag-value">{{item.weight}}kg</text>
+            </view>
+            <view class="measurement-tag" wx:if="{{item.height}}">
+              <text class="tag-label">身高</text>
+              <text class="tag-value">{{item.height}}cm</text>
+            </view>
+            <view class="measurement-tag" wx:if="{{item.headCircumference}}">
+              <text class="tag-label">头围</text>
+              <text class="tag-value">{{item.headCircumference}}cm</text>
+            </view>
+          </view>
+        </view>
+      </view>
+
+      <view class="empty-state" wx:else>
+        <text class="empty-text">暂无测量记录</text>
+        <text class="empty-desc">添加第一条记录，开始记录宝宝的成长吧！</text>
       </view>
     </view>
+
+    <!-- 调试按钮区域 -->
+    <view class="debug-section">
+      <view class="debug-header">
+        <text class="debug-title">🔧 调试工具</text>
+        <text class="debug-help" bindtap="showTestDataInfo">❓ 说明</text>
+      </view>
+      <view class="debug-buttons">
+        <button class="debug-btn debug-btn-primary" bindtap="addTestData">📊 添加WHO P50测试数据 (10条)</button>
+        <button class="debug-btn debug-btn-success" bindtap="addVariedTestData">📈 添加多样化测试数据 (15条)</button>
+        <button class="debug-btn debug-btn-secondary" bindtap="addLocalTestData">💾 添加本地测试数据 (10条)</button>
+        <button class="debug-btn debug-btn-info" bindtap="showDataStats">📋 查看数据统计</button>
+        <button class="debug-btn debug-btn-danger" bindtap="clearTestData">🗑️ 清除所有数据</button>
+        <button class="debug-btn debug-btn-warning" bindtap="testPercentileSystem">🧪 测试百分位</button>
+      </view>
+    </view>
+
   </view>
+</view>
 
-  <!-- 添加记录弹窗 -->
-  <view class="modal-overlay" wx:if="{{showModal}}" bindtap="hideModal">
-    <view class="modal-content" catchtap="stopPropagation">
-      <view class="modal-body">
-        <view class="form-group">
-          <text class="form-label">身高 (cm)</text>
-          <input 
-            class="form-input" 
-            type="number" 
-            placeholder="例如：68.5" 
-            value="{{modalData.height}}"
-            bindinput="onModalInput"
-            data-field="height"
-            maxlength="5"
-          />
-        </view>
+<!-- 编辑记录弹窗 -->
+<view class="modal-overlay" wx:if="{{showEditModal}}" bindtap="hideEditModal">
+  <view class="modal-content" catchtap="">
+    <view class="modal-header">
+      <text class="modal-title">编辑记录</text>
+      <text class="modal-close" bindtap="hideEditModal">×</text>
+    </view>
+    
+    <view class="modal-body">
+      <view class="form-group">
+        <text class="form-label">测量日期</text>
+        <picker class="form-input picker-input" mode="date" value="{{editingRecord.date}}" bindchange="onDateChange">
+          <text class="picker-text">{{editingRecord.displayDate || '选择日期'}}</text>
+          <text class="picker-arrow">></text>
+        </picker>
+      </view>
+      
+      <view class="form-group">
+        <text class="form-label">体重 (kg)</text>
+        <input class="form-input" type="digit" placeholder="请输入体重" 
+               value="{{editingRecord.weight}}" bindinput="onWeightInput"/>
+      </view>
+      
+      <view class="form-group">
+        <text class="form-label">身高 (cm)</text>
+        <input class="form-input" type="digit" placeholder="请输入身高" 
+               value="{{editingRecord.height}}" bindinput="onHeightInput"/>
+      </view>
+      
+      <view class="form-group">
+        <text class="form-label">头围 (cm)</text>
+        <input class="form-input" type="digit" placeholder="请输入头围" 
+               value="{{editingRecord.headCircumference}}" bindinput="onHeadInput"/>
+      </view>
+    </view>
+    
+    <view class="modal-footer">
+      <button class="modal-btn modal-btn-cancel" bindtap="hideEditModal">取消</button>
+      <button class="modal-btn modal-btn-confirm" bindtap="saveRecord">保存</button>
+    </view>
+  </view>
+</view>
 
-        <view class="form-group">
-          <text class="form-label">体重 (kg)</text>
-          <input 
-            class="form-input" 
-            type="number" 
-            placeholder="例如：8.5" 
-            value="{{modalData.weight}}"
-            bindinput="onModalInput"
-            data-field="weight"
-            maxlength="5"
-          />
-        </view>
-
-        <view class="form-group">
-          <text class="form-label">头围 (cm)</text>
-          <input 
-            class="form-input" 
-            type="number" 
-            placeholder="例如：42.5" 
-            value="{{modalData.head}}"
-            bindinput="onModalInput"
-            data-field="head"
-            maxlength="5"
-          />
-        </view>
-
-        <view class="form-group">
-          <text class="form-label">记录日期</text>
-          <picker mode="date" value="{{modalData.date}}" bindchange="onModalDateChange">
-            <view class="form-input picker-input">
-              <text class="picker-text">{{modalData.date || '点击选择日期'}}</text>
-              <text class="picker-arrow">📅</text>
-            </view>
-          </picker>
-        </view>
+<!-- 添加记录弹窗 -->
+<view class="modal-overlay" wx:if="{{showModal}}" bindtap="hideModal">
+  <view class="modal-content" catchtap="stopPropagation">
+    <view class="modal-body">
+      <view class="form-group">
+        <text class="form-label">身高 (cm)</text>
+        <input 
+          class="form-input" 
+          type="number" 
+          placeholder="例如：68.5" 
+          value="{{modalData.height}}"
+          bindinput="onModalInput"
+          data-field="height"
+          maxlength="5"
+        />
       </view>
 
-      <view class="modal-footer">
-        <button class="btn btn-cancel" bindtap="hideModal">取消</button>
-        <button class="btn btn-primary" bindtap="submitRecord" disabled="{{submitting}}">
-          {{submitting ? '保存中...' : '确定'}}
-        </button>
+      <view class="form-group">
+        <text class="form-label">体重 (kg)</text>
+        <input 
+          class="form-input" 
+          type="number" 
+          placeholder="例如：8.5" 
+          value="{{modalData.weight}}"
+          bindinput="onModalInput"
+          data-field="weight"
+          maxlength="5"
+        />
       </view>
+
+      <view class="form-group">
+        <text class="form-label">头围 (cm)</text>
+        <input 
+          class="form-input" 
+          type="number" 
+          placeholder="例如：42.5" 
+          value="{{modalData.head}}"
+          bindinput="onModalInput"
+          data-field="head"
+          maxlength="5"
+        />
+      </view>
+
+      <view class="form-group">
+        <text class="form-label">记录日期</text>
+        <picker mode="date" value="{{modalData.date}}" bindchange="onModalDateChange">
+          <view class="form-input picker-input">
+            <text class="picker-text">{{modalData.date || '点击选择日期'}}</text>
+            <text class="picker-arrow">📅</text>
+          </view>
+        </picker>
+      </view>
+    </view>
+
+    <view class="modal-footer">
+      <button class="btn btn-cancel" bindtap="hideModal">取消</button>
+      <button class="btn btn-primary" bindtap="submitRecord" disabled="{{submitting}}">
+        {{submitting ? '保存中...' : '确定'}}
+      </button>
     </view>
   </view>
 </view> 
