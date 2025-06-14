@@ -67,7 +67,28 @@
 
       <!-- 成长曲线 -->
       <view class="chart-container" wx:if="{{!showEditModal && !showModal}}">
-        <canvas class="chart-canvas" canvas-id="growthChart" id="growthChart" type="2d"></canvas>
+        <canvas 
+          class="chart-canvas" 
+          canvas-id="growthChart" 
+          id="growthChart" 
+          type="2d"
+          bindtouchmove="onChartTouchMove"
+          bindtouchstart="onChartTouchStart"
+          bindtouchend="onChartTouchEnd"
+        ></canvas>
+        
+                 <!-- 坐标提示框 -->
+         <view 
+           class="chart-tooltip" 
+           wx:if="{{showTooltip}}"
+           style="left: {{tooltipX}}px; top: {{tooltipY}}px;"
+         >
+           <view class="tooltip-content">
+             <text class="tooltip-time">{{tooltipTime}}</text>
+             <text class="tooltip-value" wx:for="{{tooltipValues}}" wx:key="index">{{item}}</text>
+           </view>
+         </view>
+        
         <view class="chart-description">
           <text class="chart-desc-text">实线显示实际测量值，彩色线条为WHO百分位曲线（P3、P15、P50、P85、P97）</text>
         </view>
@@ -122,6 +143,10 @@
         <button class="debug-btn debug-btn-info" bindtap="showDataStats">📋 查看数据统计</button>
         <button class="debug-btn debug-btn-danger" bindtap="clearTestData">🗑️ 清除所有数据</button>
         <button class="debug-btn debug-btn-warning" bindtap="testPercentileSystem">🧪 测试百分位</button>
+        <button class="debug-btn debug-btn-info" bindtap="testWHOGenderSwitch">🚻 测试性别切换</button>
+        <button class="debug-btn debug-btn-success" bindtap="testChartTooltip">📍 测试坐标提示</button>
+        <button class="debug-btn debug-btn-warning" bindtap="debugDataAndChart">🔍 调试数据和图表</button>
+        <button class="debug-btn debug-btn-info" bindtap="testDatabaseQuery">🔍 测试数据库查询</button>
       </view>
     </view>
 
@@ -139,7 +164,7 @@
     <view class="modal-body">
       <view class="form-group">
         <text class="form-label">测量日期</text>
-        <picker class="form-input picker-input" mode="date" value="{{editingRecord.date}}" bindchange="onDateChange">
+        <picker class="form-input picker-input" mode="date" value="{{editingRecord.date}}" end="{{maxDate}}" bindchange="onDateChange">
           <text class="picker-text">{{editingRecord.displayDate || '选择日期'}}</text>
           <text class="picker-arrow">></text>
         </picker>
@@ -216,7 +241,7 @@
 
       <view class="form-group">
         <text class="form-label">记录日期</text>
-        <picker mode="date" value="{{modalData.date}}" bindchange="onModalDateChange">
+        <picker mode="date" value="{{modalData.date}}" end="{{maxDate}}" bindchange="onModalDateChange">
           <view class="form-input picker-input">
             <text class="picker-text">{{modalData.date || '点击选择日期'}}</text>
             <text class="picker-arrow">📅</text>

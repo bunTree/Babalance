@@ -45,18 +45,24 @@ Page({
     chartData: {
       weight: {
         labels: [],
-        baby: [],
-        standard: []
+        values: [],
+        percentiles: {
+          P3: [], P15: [], P50: [], P85: [], P97: []
+        }
       },
       height: {
         labels: [],
-        baby: [],
-        standard: []
+        values: [],
+        percentiles: {
+          P3: [], P15: [], P50: [], P85: [], P97: []
+        }
       },
       head: {
         labels: [],
-        baby: [],
-        standard: []
+        values: [],
+        percentiles: {
+          P3: [], P15: [], P50: [], P85: [], P97: []
+        }
       }
     },
 
@@ -122,7 +128,17 @@ Page({
     headValue: '--',
     
     // 容器样式
-    containerStyle: '--status-bar-height: 88rpx;'
+    containerStyle: '--status-bar-height: 88rpx;',
+    
+    // 图表提示框
+    showTooltip: false,
+    tooltipX: 0,
+    tooltipY: 0,
+    tooltipTime: '',
+    tooltipValues: [],
+    
+    // 日期限制
+    maxDate: new Date().toISOString().split('T')[0]  // 今天的日期
   },
 
   // 标准化性别值 (兼容不同的性别表示方式)
@@ -344,12 +360,43 @@ Page({
       if (app.globalData.openid) {
         console.log('📊 从云端获取数据')
         const db = wx.cloud.database()
-        const result = await db.collection('b-measure')
+        // 尝试不同的openid字段名
+        console.log('📊 当前openid:', app.globalData.openid)
+        
+        // 先尝试使用 _openid 查询
+        let result = await db.collection('b-measure')
           .where({
-            openid: app.globalData.openid
+            _openid: app.globalData.openid
           })
           .orderBy('date', 'asc')
           .get()
+        
+        console.log('📊 使用_openid查询结果:', result.data.length)
+        
+        // 如果_openid查询无结果，尝试openid
+        if (result.data.length === 0) {
+          console.log('📊 _openid查询无结果，尝试openid字段')
+          result = await db.collection('b-measure')
+            .where({
+              openid: app.globalData.openid
+            })
+            .orderBy('date', 'asc')
+            .get()
+          console.log('📊 使用openid查询结果:', result.data.length)
+        }
+        
+        // 如果还是无结果，查询所有数据看看结构
+        if (result.data.length === 0) {
+          console.log('📊 两种openid都无结果，查询所有数据检查结构')
+          const allResult = await db.collection('b-measure')
+            .limit(5)
+            .get()
+          console.log('📊 数据库中的所有数据样本:', allResult.data)
+          if (allResult.data.length > 0) {
+            console.log('📊 第一条数据的字段:', Object.keys(allResult.data[0]))
+            console.log('📊 第一条数据详情:', allResult.data[0])
+          }
+        }
         
         console.log('📊 云端数据:', result.data)
         console.log('📊 云端数据详情:', JSON.stringify(result.data, null, 2))
@@ -379,33 +426,38 @@ Page({
     
     return cloudData.map((record, index) => {
       console.log(`📊 转换第${index + 1}条记录:`, record)
+      console.log(`📊 记录的所有字段:`, Object.keys(record))
       
       // 检查不同可能的数据结构
       let weight, height, headCircumference, date
       
       // measurements对象结构 - 优先检查
       if (record.measurements) {
-        weight = record.measurements.weight?.value
-        height = record.measurements.height?.value
-        headCircumference = record.measurements.headCircumference?.value || record.measurements.head?.value
+        console.log('📊 使用measurements结构:', record.measurements)
+        weight = record.measurements.weight && record.measurements.weight.value
+        height = record.measurements.height && record.measurements.height.value
+        headCircumference = (record.measurements.headCircumference && record.measurements.headCircumference.value) || (record.measurements.head && record.measurements.head.value)
         date = record.date
       }
       // measure对象结构
       else if (record.measure) {
-        weight = record.measure.weight?.value || record.measure.weight
-        height = record.measure.height?.value || record.measure.height
-        headCircumference = record.measure.headCircumference?.value || record.measure.head?.value || record.measure.headCircumference || record.measure.head
+        console.log('📊 使用measure结构:', record.measure)
+        weight = (record.measure.weight && record.measure.weight.value) || record.measure.weight
+        height = (record.measure.height && record.measure.height.value) || record.measure.height
+        headCircumference = (record.measure.headCircumference && record.measure.headCircumference.value) || (record.measure.head && record.measure.head.value) || record.measure.headCircumference || record.measure.head
         date = record.date
       }
       // 直接字段访问
-      else if (record.weight !== undefined || record.height !== undefined || record.headCircumference !== undefined) {
+      else if (record.weight !== undefined || record.height !== undefined || record.headCircumference !== undefined || record.head !== undefined) {
+        console.log('📊 使用直接字段访问')
         weight = record.weight
         height = record.height
-        headCircumference = record.headCircumference
+        headCircumference = record.headCircumference || record.head
         date = record.date
       }
       // 其他可能的字段名
       else {
+        console.log('📊 尝试其他可能的字段名')
         // 尝试其他可能的字段名
         weight = record.weight || record.体重 || record.w
         height = record.height || record.身高 || record.h
@@ -414,6 +466,12 @@ Page({
       }
       
       console.log(`📊 提取的原始值:`, { weight, height, headCircumference, date })
+      
+      // 过滤掉没有任何测量数据的记录
+      if (!weight && !height && !headCircumference) {
+        console.log(`📊 ⚠️ 第${index + 1}条记录没有有效的测量数据，跳过`)
+        return null
+      }
       
       const converted = {
         date: date || record.date || new Date().toISOString().split('T')[0],
@@ -427,7 +485,7 @@ Page({
       
       console.log(`📊 转换结果:`, converted)
       return converted
-    })
+    }).filter(record => record !== null) // 过滤掉null记录
   },
 
   // 更新最新指标
@@ -483,12 +541,27 @@ Page({
 
       console.log('🔍 开始检查云端数据结构...')
       const db = wx.cloud.database()
-      const result = await db.collection('b-measure')
+      
+      // 尝试不同的openid字段名
+      let result = await db.collection('b-measure')
         .where({
-          openid: app.globalData.openid
+          _openid: app.globalData.openid
         })
         .limit(1)
         .get()
+      
+      console.log('🔍 使用_openid查询结果:', result.data.length)
+      
+      // 如果_openid查询无结果，尝试openid
+      if (result.data.length === 0) {
+        result = await db.collection('b-measure')
+          .where({
+            openid: app.globalData.openid
+          })
+          .limit(1)
+          .get()
+        console.log('🔍 使用openid查询结果:', result.data.length)
+      }
       
       if (result.data && result.data.length > 0) {
         const record = result.data[0]
@@ -1195,8 +1268,8 @@ Page({
     const stats = {
       total: records.length,
       dateRange: {
-        start: records[0]?.date,
-        end: records[records.length - 1]?.date
+              start: records[0] && records[0].date,
+      end: records[records.length - 1] && records[records.length - 1].date
       },
       latest: records[records.length - 1]
     }
@@ -1325,6 +1398,10 @@ Page({
     const filteredRecords = this.filterRecordsByTimeRange(records)
     console.log('📊 过滤后的记录:', filteredRecords)
     
+    // 添加函数开始时的调试信息
+    console.log('📊 updateChartData函数开始执行')
+    console.log('📊 当前this.data.chartData:', this.data.chartData)
+    
     // 获取宝宝信息用于计算WHO标准值
     const babyInfo = this.data.babyInfo || {}
     const babyGender = this.normalizeGender(babyInfo.gender)
@@ -1334,6 +1411,13 @@ Page({
       gender: babyGender,
       birthday: babyBirthday
     })
+
+    // 如果没有用户数据，生成默认的WHO成长曲线
+    if (!filteredRecords || filteredRecords.length === 0) {
+      console.log('📊 没有用户数据，生成默认WHO成长曲线')
+      this.generateDefaultWHOChart(babyGender, babyBirthday)
+      return
+    }
     
     const chartData = {
       weight: { 
@@ -1359,6 +1443,18 @@ Page({
       }
     }
     
+    console.log('📊 chartData对象创建完成:', chartData)
+    console.log('📊 chartData类型:', typeof chartData)
+    console.log('📊 chartData是否为null:', chartData === null)
+    console.log('📊 chartData是否为undefined:', chartData === undefined)
+    
+    // 创建chartData的备份，防止意外修改
+    const chartDataBackup = JSON.parse(JSON.stringify(chartData))
+    
+    // 收集所有实际数据的月龄，用于生成WHO百分位曲线的范围
+    const dataAgeMonths = []
+    
+    // 先处理实际数据，收集月龄信息
     filteredRecords.forEach((record, index) => {
       const label = this.formatDateForChart(record.date)
       
@@ -1382,8 +1478,8 @@ Page({
           ageInMonths = this.calculateAgeInMonths(babyBirthday)
         }
       } else {
-        // 如果没有生日信息，使用默认月龄（比如21个月，对应测试数据）
-        ageInMonths = 21
+        // 如果没有生日信息，使用默认月龄（比如2个月，对应测试数据）
+        ageInMonths = 2
         console.log('📊 ⚠️ 没有生日信息，使用默认月龄:', ageInMonths)
       }
       
@@ -1395,45 +1491,150 @@ Page({
         headCircumference: record.headCircumference
       })
       
+      // 为有数据的指标添加数据点
       if (record.weight) {
         chartData.weight.labels.push(label)
         chartData.weight.values.push(parseFloat(record.weight))
-        
-        // 计算各个百分位值
-        Object.keys(chartData.weight.percentiles).forEach(percentile => {
-          const value = this.getWHOPercentileValue('weight', ageInMonths, percentile, babyGender)
-          chartData.weight.percentiles[percentile].push(value)
-        })
-        
+        dataAgeMonths.push(ageInMonths)
         console.log('📊 添加体重数据:', parseFloat(record.weight))
       }
       
       if (record.height) {
         chartData.height.labels.push(label)
         chartData.height.values.push(parseFloat(record.height))
-        
-        // 计算各个百分位值
-        Object.keys(chartData.height.percentiles).forEach(percentile => {
-          const value = this.getWHOPercentileValue('height', ageInMonths, percentile, babyGender)
-          chartData.height.percentiles[percentile].push(value)
-        })
-        
+        if (!dataAgeMonths.includes(ageInMonths)) {
+          dataAgeMonths.push(ageInMonths)
+        }
         console.log('📊 添加身高数据:', parseFloat(record.height))
       }
       
       if (record.headCircumference) {
         chartData.head.labels.push(label)
         chartData.head.values.push(parseFloat(record.headCircumference))
-        
-        // 计算各个百分位值
-        Object.keys(chartData.head.percentiles).forEach(percentile => {
-          const value = this.getWHOPercentileValue('head', ageInMonths, percentile, babyGender)
-          chartData.head.percentiles[percentile].push(value)
-        })
-        
+        if (!dataAgeMonths.includes(ageInMonths)) {
+          dataAgeMonths.push(ageInMonths)
+        }
         console.log('📊 添加头围数据:', parseFloat(record.headCircumference))
       }
     })
+    
+    // 确定WHO百分位曲线的范围：从最小月龄-1到最大月龄+1，确保有足够的上下文
+    if (dataAgeMonths.length === 0) {
+      console.log('📊 ⚠️ 没有有效的数据月龄，跳过WHO百分位数据生成')
+      this.setData({ chartData }, () => {
+        console.log('📊 图表数据已设置到页面状态（无WHO数据）')
+        setTimeout(() => {
+          this.drawChart()
+        }, 100)
+      })
+      return
+    }
+    
+    const minAge = Math.max(0, Math.min(...dataAgeMonths) - 1)
+    const maxAge = Math.max(...dataAgeMonths) + 1
+    
+    console.log('📊 WHO曲线范围:', minAge, '-', maxAge, '个月，基于数据月龄:', dataAgeMonths)
+    console.log('📊 chartData结构检查:', {
+      weight: !!chartData.weight,
+      height: !!chartData.height,
+      head: !!chartData.head,
+      weightPercentiles: !!(chartData.weight && chartData.weight.percentiles),
+      heightPercentiles: !!(chartData.height && chartData.height.percentiles),
+      headPercentiles: !!(chartData.head && chartData.head.percentiles)
+    })
+    
+    // 确保chartData对象完整性
+    ['weight', 'height', 'head'].forEach(type => {
+      if (!chartData[type]) {
+        console.log(`📊 ⚠️ 修复缺失的chartData[${type}]`)
+        chartData[type] = {
+          labels: [],
+          values: [],
+          percentiles: {
+            P3: [], P15: [], P50: [], P85: [], P97: []
+          }
+        }
+      }
+      if (!chartData[type].percentiles) {
+        console.log(`📊 ⚠️ 修复缺失的chartData[${type}].percentiles`)
+        chartData[type].percentiles = {
+          P3: [], P15: [], P50: [], P85: [], P97: []
+        }
+      }
+    })
+    
+    // 为每个指标生成WHO百分位数据
+    try {
+      ['weight', 'height', 'head'].forEach(type => {
+        console.log(`📊 处理指标类型: ${type}`)
+        console.log(`📊 chartData类型:`, typeof chartData)
+        console.log(`📊 chartData是否为null:`, chartData === null)
+        console.log(`📊 chartData是否为undefined:`, chartData === undefined)
+        
+        // 如果chartData被意外修改，重新创建
+        if (!chartData || typeof chartData !== 'object') {
+          console.log(`📊 ⚠️ chartData被意外修改，重新创建`)
+          chartData = chartDataBackup ? JSON.parse(JSON.stringify(chartDataBackup)) : {
+            weight: { labels: [], values: [], percentiles: { P3: [], P15: [], P50: [], P85: [], P97: [] } },
+            height: { labels: [], values: [], percentiles: { P3: [], P15: [], P50: [], P85: [], P97: [] } },
+            head: { labels: [], values: [], percentiles: { P3: [], P15: [], P50: [], P85: [], P97: [] } }
+          }
+        }
+        
+        console.log(`📊 chartData[${type}]存在:`, !!chartData[type])
+        console.log(`📊 chartData完整结构:`, Object.keys(chartData))
+        
+        // 确保chartData[type]存在
+        if (!chartData[type]) {
+          console.log(`📊 ⚠️ chartData[${type}]不存在，跳过`)
+          return
+        }
+        
+        const hasData = chartData[type] && chartData[type].values && chartData[type].values.length > 0
+        if (hasData) {
+          // 确保percentiles对象存在
+          if (!chartData[type].percentiles) {
+            console.log(`📊 ⚠️ chartData[${type}].percentiles不存在，跳过`)
+            return
+          }
+          
+          // 为有实际数据的指标生成WHO百分位曲线
+          for (let ageInMonths = minAge; ageInMonths <= maxAge; ageInMonths++) {
+            Object.keys(chartData[type].percentiles).forEach(percentile => {
+              const value = this.getWHOPercentileValue(type, ageInMonths, percentile, babyGender)
+              chartData[type].percentiles[percentile].push(value)
+            })
+          }
+          console.log(`📊 为${type}生成WHO百分位数据，范围:${minAge}-${maxAge}个月`)
+        } else {
+          console.log(`📊 ${type}没有数据，跳过WHO百分位数据生成`)
+        }
+      })
+    } catch (error) {
+      console.error('📊 ❌ 生成WHO百分位数据时发生错误:', error)
+      console.error('📊 ❌ 错误详情:', {
+        message: error.message,
+        stack: error.stack,
+        chartData: chartData,
+        chartDataType: typeof chartData
+      })
+      
+      // 尝试使用备份数据
+      console.log('📊 🔄 尝试使用备份数据恢复')
+      if (chartDataBackup && typeof chartDataBackup === 'object') {
+        console.log('📊 ✅ 使用备份数据继续执行')
+        // 不生成WHO百分位数据，直接使用备份的基础结构
+        this.setData({ chartData: chartDataBackup }, () => {
+          console.log('📊 图表数据已设置到页面状态（使用备份）')
+          setTimeout(() => {
+            this.drawChart()
+          }, 100)
+        })
+        return
+      } else {
+        throw error // 如果备份也有问题，重新抛出错误
+      }
+    }
     
     console.log('📊 最终图表数据:', chartData)
     console.log('📊 当前活动图表类型:', this.data.activeChartType)
@@ -1460,6 +1661,100 @@ Page({
     return records.filter(record => {
       const recordDate = new Date(record.date)
       return recordDate >= cutoffDate
+    })
+  },
+
+  // 生成默认的WHO成长曲线（当没有用户数据时）
+  generateDefaultWHOChart(babyGender, babyBirthday) {
+    console.log('📊 生成默认WHO成长曲线，性别:', babyGender, '生日:', babyBirthday)
+    
+    // 确保性别参数正确标准化
+    const normalizedGender = this.normalizeGender(babyGender)
+    console.log('📊 标准化后的性别:', normalizedGender)
+    
+    // 确定时间范围
+    let startAgeMonths = 0
+    let endAgeMonths = 12 // 默认显示0-12个月
+    
+    // 如果有生日信息，计算当前月龄
+    if (babyBirthday) {
+      const currentAgeMonths = this.calculateAgeInMonths(babyBirthday)
+      if (currentAgeMonths > 0) {
+        endAgeMonths = Math.max(12, currentAgeMonths + 2) // 至少显示到12个月，或当前月龄+2个月
+      }
+    }
+    
+    console.log('📊 WHO曲线时间范围:', startAgeMonths, '-', endAgeMonths, '个月')
+    
+    const chartData = {
+      weight: { 
+        labels: [], 
+        values: [], 
+        percentiles: {
+          P3: [], P15: [], P50: [], P85: [], P97: []
+        }
+      },
+      height: { 
+        labels: [], 
+        values: [], 
+        percentiles: {
+          P3: [], P15: [], P50: [], P85: [], P97: []
+        }
+      },
+      head: { 
+        labels: [], 
+        values: [], 
+        percentiles: {
+          P3: [], P15: [], P50: [], P85: [], P97: []
+        }
+      }
+    }
+    
+    // 生成时间轴和WHO百分位数据
+    for (let ageInMonths = startAgeMonths; ageInMonths <= endAgeMonths; ageInMonths++) {
+      // 生成时间标签
+      let dateLabel
+      if (babyBirthday) {
+        const birthDate = new Date(babyBirthday)
+        const targetDate = new Date(birthDate)
+        targetDate.setMonth(birthDate.getMonth() + ageInMonths)
+        dateLabel = this.formatDateForChart(targetDate.toISOString().split('T')[0])
+      } else {
+        dateLabel = `${ageInMonths}月`
+      }
+      
+      // 为每个指标生成数据
+      ['weight', 'height', 'head'].forEach(type => {
+        // 确保chartData[type]存在
+        if (!chartData[type]) {
+          console.log(`📊 ⚠️ generateDefaultWHOChart: chartData[${type}]不存在，跳过`)
+          return
+        }
+        
+        chartData[type].labels.push(dateLabel)
+        chartData[type].values.push(null) // 没有实际测量值
+        
+        // 确保percentiles对象存在
+        if (!chartData[type].percentiles) {
+          console.log(`📊 ⚠️ generateDefaultWHOChart: chartData[${type}].percentiles不存在，跳过`)
+          return
+        }
+        
+        // 生成WHO百分位数据
+        Object.keys(chartData[type].percentiles).forEach(percentile => {
+          const value = this.getWHOPercentileValue(type, ageInMonths, percentile, normalizedGender)
+          chartData[type].percentiles[percentile].push(value)
+        })
+      })
+    }
+    
+    console.log('📊 生成的默认WHO图表数据:', chartData)
+    
+    this.setData({ chartData }, () => {
+      console.log('📊 默认WHO图表数据已设置到页面状态')
+      setTimeout(() => {
+        this.drawChart()
+      }, 100)
     })
   },
 
@@ -1564,9 +1859,22 @@ Page({
   },
 
   onDateChange(e) {
+    const selectedDate = e.detail.value
+    const today = new Date().toISOString().split('T')[0]
+    
+    // 检查是否选择了未来日期
+    if (selectedDate > today) {
+      wx.showToast({
+        title: '不能选择未来日期',
+        icon: 'none',
+        duration: 2000
+      })
+      return
+    }
+    
     this.setData({
-      'editingRecord.date': e.detail.value,
-      'editingRecord.displayDate': this.formatDateShort(e.detail.value)
+      'editingRecord.date': selectedDate,
+      'editingRecord.displayDate': this.formatDateShort(selectedDate)
     })
   },
 
@@ -1580,6 +1888,21 @@ Page({
         icon: 'none'
       })
       return
+    }
+
+    // 验证日期不能为未来日期
+    if (record.date) {
+      const selectedDate = record.date
+      const today = new Date().toISOString().split('T')[0]
+      
+      if (selectedDate > today) {
+        wx.showToast({
+          title: '记录日期不能是未来日期',
+          icon: 'none',
+          duration: 2000
+        })
+        return
+      }
     }
     
     try {
@@ -1694,8 +2017,8 @@ Page({
     const currentData = this.data.chartData[this.data.activeChartType]
     console.log('📊 当前图表数据:', currentData)
     
-    if (!currentData || !currentData.values || currentData.values.length === 0) {
-      console.log('📊 ❌ 数据为空，绘制空状态')
+    if (!currentData) {
+      console.log('📊 ❌ 图表数据对象不存在')
       // 绘制空状态
       ctx.fillStyle = '#999'
       ctx.font = '14px sans-serif'
@@ -1705,9 +2028,9 @@ Page({
       return
     }
     
-    const values = currentData.values
-    const percentiles = currentData.percentiles
-    const labels = currentData.labels
+    const values = currentData.values || []
+    const percentiles = currentData.percentiles || {}
+    const labels = currentData.labels || []
     
     console.log('📊 绘制数据:', {
       values: values,
@@ -1716,20 +2039,46 @@ Page({
       dataCount: values.length
     })
     
-    if (values.length === 0) {
-      console.log('📊 ❌ values数组为空')
+    // 检查是否有WHO百分位数据
+    const hasPercentileData = Object.keys(percentiles).length > 0 && 
+                              Object.values(percentiles).some(data => data && data.length > 0)
+    
+    if (values.length === 0 && !hasPercentileData) {
+      console.log('📊 ❌ 没有任何数据（用户数据和WHO数据都没有）')
       ctx.fillStyle = '#999'
       ctx.font = '14px sans-serif'
       ctx.textAlign = 'center'
       ctx.fillText('暂无数据', width / 2, height / 2)
+      ctx.fillText('点击右上角"测试"按钮添加数据', width / 2, height / 2 + 20)
       return
     }
     
     // 计算所有数据的最小值和最大值
-    const allValues = [...values]
+    const allValues = []
+    
+    // 添加实际测量值（过滤null值）
+    const validValues = values.filter(v => v !== null && v !== undefined)
+    if (validValues.length > 0) {
+      allValues.push(...validValues)
+    }
+    
+    // 添加WHO百分位数据
     Object.values(percentiles).forEach(percentileData => {
-      allValues.push(...percentileData)
+      if (percentileData && percentileData.length > 0) {
+        const validPercentileValues = percentileData.filter(v => v !== null && v !== undefined && !isNaN(v))
+        allValues.push(...validPercentileValues)
+      }
     })
+    
+    if (allValues.length === 0) {
+      console.log('📊 ❌ 没有有效数值')
+      ctx.fillStyle = '#999'
+      ctx.font = '14px sans-serif'
+      ctx.textAlign = 'center'
+      ctx.fillText('暂无数据', width / 2, height / 2)
+      ctx.fillText('点击右上角"测试"按钮添加数据', width / 2, height / 2 + 20)
+      return
+    }
     
     const minValue = Math.min(...allValues) * 0.9
     const maxValue = Math.max(...allValues) * 1.1
@@ -1745,11 +2094,19 @@ Page({
     // 绘制百分位线
     this.drawPercentileLines(ctx, percentiles, width, height, padding, minValue, maxValue)
     
-    // 绘制实际数据线
-    this.drawLine(ctx, values, '#667eea', width, height, padding, minValue, maxValue, false)
+    // 绘制实际数据线（如果有有效数据）
+    const hasValidData = values.some(v => v !== null && v !== undefined)
+    console.log('📊 检查实际数据:', { values, hasValidData, valuesLength: values.length })
+    if (hasValidData) {
+      console.log('📊 开始绘制实际数据线，数据:', values)
+      this.drawLine(ctx, values, '#667eea', width, height, padding, minValue, maxValue, false)
+      console.log('📊 ✅ 实际数据线绘制完成')
+    } else {
+      console.log('📊 ❌ 没有有效的实际数据，跳过绘制')
+    }
     
     // 绘制图例
-    this.drawPercentileLegend(ctx, width, height)
+    this.drawPercentileLegend(ctx, width, height, hasValidData)
     
     console.log('📊 ✅ 图表绘制完成')
   },
@@ -1770,13 +2127,15 @@ Page({
     
     // 垂直网格线
     const data = this.data.chartData[this.data.activeChartType]
-    const stepX = (width - 2 * padding) / Math.max(1, data.values.length - 1)
-    for (let i = 0; i < data.values.length; i++) {
-      const x = padding + stepX * i
-      ctx.beginPath()
-      ctx.moveTo(x, padding)
-      ctx.lineTo(x, height - padding)
-      ctx.stroke()
+    if (data && data.values) {
+      const stepX = (width - 2 * padding) / Math.max(1, data.values.length - 1)
+      for (let i = 0; i < data.values.length; i++) {
+        const x = padding + stepX * i
+        ctx.beginPath()
+        ctx.moveTo(x, padding)
+        ctx.lineTo(x, height - padding)
+        ctx.stroke()
+      }
     }
   },
 
@@ -1818,7 +2177,7 @@ Page({
 
   // 绘制数据线
   drawLine(ctx, data, color, width, height, padding, minValue, maxValue, isDashed) {
-    if (data.length < 2) return
+    if (data.length === 0) return
     
     ctx.strokeStyle = color
     ctx.lineWidth = 2
@@ -1827,6 +2186,28 @@ Page({
       ctx.setLineDash([5, 5])
     } else {
       ctx.setLineDash([])
+    }
+    
+    // 如果只有一个数据点，只绘制点，不绘制线
+    if (data.length === 1) {
+      const x = padding + (width - 2 * padding) / 2 // 居中显示
+      const y = height - padding - ((data[0] - minValue) / (maxValue - minValue)) * (height - 2 * padding)
+      
+      // 绘制数据点
+      if (!isDashed) {
+        ctx.fillStyle = color
+        ctx.beginPath()
+        ctx.arc(x, y, 5, 0, 2 * Math.PI) // 单个点稍大一些
+        ctx.fill()
+        
+        // 添加一个外圈强调
+        ctx.strokeStyle = color
+        ctx.lineWidth = 2
+        ctx.beginPath()
+        ctx.arc(x, y, 7, 0, 2 * Math.PI)
+        ctx.stroke()
+      }
+      return
     }
     
     const stepX = (width - 2 * padding) / (data.length - 1)
@@ -1893,20 +2274,33 @@ Page({
         ctx.lineWidth = percentile === 'P50' ? 2 : 1.5
         ctx.setLineDash(dashStyle)
         
-        const stepX = (width - 2 * padding) / Math.max(1, data.length - 1)
-        
-        ctx.beginPath()
-        data.forEach((value, i) => {
-          const x = padding + stepX * i
-          const y = height - padding - ((value - minValue) / (maxValue - minValue)) * (height - 2 * padding)
+        if (data.length === 1) {
+          // 如果只有一个数据点，绘制一个水平的短线段
+          const x = padding + (width - 2 * padding) / 2 // 居中显示
+          const y = height - padding - ((data[0] - minValue) / (maxValue - minValue)) * (height - 2 * padding)
+          const lineLength = 20 // 短线段长度
           
-          if (i === 0) {
-            ctx.moveTo(x, y)
-          } else {
-            ctx.lineTo(x, y)
-          }
-        })
-        ctx.stroke()
+          ctx.beginPath()
+          ctx.moveTo(x - lineLength / 2, y)
+          ctx.lineTo(x + lineLength / 2, y)
+          ctx.stroke()
+        } else {
+          // 多个数据点，绘制连续的线
+          const stepX = (width - 2 * padding) / Math.max(1, data.length - 1)
+          
+          ctx.beginPath()
+          data.forEach((value, i) => {
+            const x = padding + stepX * i
+            const y = height - padding - ((value - minValue) / (maxValue - minValue)) * (height - 2 * padding)
+            
+            if (i === 0) {
+              ctx.moveTo(x, y)
+            } else {
+              ctx.lineTo(x, y)
+            }
+          })
+          ctx.stroke()
+        }
         
         console.log(`📊 ✅ ${percentile}百分位线绘制完成`)
       } else {
@@ -1921,7 +2315,7 @@ Page({
 
 
   // 绘制百分位图例
-  drawPercentileLegend(ctx, width, height) {
+  drawPercentileLegend(ctx, width, height, hasValidData = true) {
     // 确保绘制区域在Canvas范围内
     if (!ctx || width <= 0 || height <= 0) {
       console.warn('Canvas参数无效，跳过图例绘制')
@@ -1935,13 +2329,21 @@ Page({
       ctx.font = '10px sans-serif'
       ctx.textAlign = 'left'
       
-      const genderText = this.data.babyInfo?.gender === 'girl' ? '女宝' : '男宝'
-      const legendItems = [
-        { label: '实际测量值', color: '#667eea', dash: [], lineWidth: 2 },
+      // 正确获取性别文本，使用getGenderText方法确保一致性
+      const genderText = this.getGenderText(this.data.babyInfo && this.data.babyInfo.gender)
+      const legendItems = []
+      
+      // 只有当有实际数据时才显示"实际测量值"
+      if (hasValidData) {
+        legendItems.push({ label: '实际测量值', color: '#667eea', dash: [], lineWidth: 2 })
+      }
+      
+      // 始终显示WHO百分位线
+      legendItems.push(
         { label: `P50(${genderText})`, color: '#66bb6a', dash: [], lineWidth: 2 },
         { label: 'P85/P15', color: '#42a5f5', dash: [5, 5], lineWidth: 1.5 },
         { label: 'P97/P3', color: '#ab47bc', dash: [2, 8], lineWidth: 1.5 }
-      ]
+      )
       
       const startY = 25
       const lineHeight = 16
@@ -2042,7 +2444,7 @@ Page({
   getWHOPercentileValue(type, ageInMonths, percentile = 'P50', gender = null) {
     // 如果没有传入性别，使用当前宝宝的性别
     if (!gender) {
-      gender = this.normalizeGender(this.data.babyInfo?.gender || 'default')
+      gender = this.normalizeGender((this.data.babyInfo && this.data.babyInfo.gender) || 'default')
     }
     
     // 如果性别不是male或female，使用默认值
@@ -2486,16 +2888,16 @@ Page({
         labels: currentData.labels,
         values: currentData.values,
         percentiles: currentData.percentiles,
-        valuesCount: currentData.values?.length || 0,
-        labelsCount: currentData.labels?.length || 0
+              valuesCount: (currentData.values && currentData.values.length) || 0,
+      labelsCount: (currentData.labels && currentData.labels.length) || 0
       })
       
       // 检查百分位数据
       Object.keys(currentData.percentiles || {}).forEach(percentile => {
         const data = currentData.percentiles[percentile]
         console.log(`🔍 ${percentile}百分位数据:`, {
-          length: data?.length || 0,
-          values: data?.slice(0, 3) || [], // 只显示前3个值
+                  length: (data && data.length) || 0,
+        values: (data && data.slice(0, 3)) || [], // 只显示前3个值
           hasData: data && data.length > 0
         })
       })
@@ -2509,7 +2911,7 @@ Page({
     // 显示调试信息
     wx.showModal({
       title: '图表调试信息',
-      content: `图表类型: ${this.data.activeChartType}\n数据点数: ${currentData?.values?.length || 0}\n百分位线数: ${Object.keys(currentData?.percentiles || {}).length}`,
+      content: `图表类型: ${this.data.activeChartType}\n数据点数: ${(currentData && currentData.values && currentData.values.length) || 0}\n百分位线数: ${Object.keys((currentData && currentData.percentiles) || {}).length}`,
       showCancel: false
     })
   },
@@ -2544,6 +2946,485 @@ Page({
       title: '百分位测试完成，请查看控制台',
       icon: 'success'
     })
+  },
+
+  // 图表触摸事件处理
+  onChartTouchStart(e) {
+    console.log('📊 图表触摸开始')
+    this.handleChartTouch(e)
+  },
+
+  onChartTouchMove(e) {
+    console.log('📊 图表触摸移动')
+    this.handleChartTouch(e)
+  },
+
+  onChartTouchEnd(e) {
+    console.log('📊 图表触摸结束')
+    // 延迟隐藏提示框，给用户一点时间查看
+    setTimeout(() => {
+      this.setData({
+        showTooltip: false
+      })
+    }, 1000)
+  },
+
+  // 处理图表触摸事件
+  handleChartTouch(e) {
+    if (!this.ctx || !this.canvasWidth || !this.canvasHeight) {
+      console.log('📊 Canvas未初始化，跳过触摸处理')
+      return
+    }
+
+    const touch = e.touches[0]
+    if (!touch) return
+
+    // 获取Canvas元素的位置信息
+    wx.createSelectorQuery()
+      .select('#growthChart')
+      .boundingClientRect((rect) => {
+        if (!rect) return
+
+        // 计算相对于Canvas的坐标
+        const canvasX = touch.clientX - rect.left
+        const canvasY = touch.clientY - rect.top
+
+        console.log('📊 触摸坐标:', {
+          clientX: touch.clientX,
+          clientY: touch.clientY,
+          rectLeft: rect.left,
+          rectTop: rect.top,
+          canvasX: canvasX,
+          canvasY: canvasY
+        })
+
+        // 计算图表坐标
+        this.calculateChartCoordinates(canvasX, canvasY, touch.clientX, touch.clientY)
+      })
+      .exec()
+  },
+
+  // 计算图表坐标并显示提示框
+  calculateChartCoordinates(canvasX, canvasY, screenX, screenY) {
+    const padding = 40
+    const chartWidth = this.canvasWidth - 2 * padding
+    const chartHeight = this.canvasHeight - 2 * padding
+
+    // 检查是否在图表区域内
+    if (canvasX < padding || canvasX > this.canvasWidth - padding ||
+        canvasY < padding || canvasY > this.canvasHeight - padding) {
+      this.setData({ showTooltip: false })
+      return
+    }
+
+    // 获取当前图表数据
+    const currentData = this.data.chartData[this.data.activeChartType]
+    if (!currentData || !currentData.values || currentData.values.length === 0) {
+      return
+    }
+
+    // 计算X轴位置对应的数据点索引
+    const relativeX = canvasX - padding
+    const dataIndex = Math.round((relativeX / chartWidth) * (currentData.values.length - 1))
+    const clampedIndex = Math.max(0, Math.min(dataIndex, currentData.values.length - 1))
+
+    console.log('📊 计算数据索引:', {
+      relativeX: relativeX,
+      chartWidth: chartWidth,
+      dataIndex: dataIndex,
+      clampedIndex: clampedIndex,
+      totalPoints: currentData.values.length
+    })
+
+    // 获取对应的时间和数值
+    const timeLabel = currentData.labels[clampedIndex] || ''
+    const actualValue = currentData.values[clampedIndex]
+
+    // 计算Y轴对应的数值
+    const allValues = []
+    const validValues = currentData.values.filter(v => v !== null && v !== undefined)
+    allValues.push(...validValues)
+    Object.values(currentData.percentiles).forEach(percentileData => {
+      allValues.push(...percentileData)
+    })
+
+    if (allValues.length === 0) return
+
+    const minValue = Math.min(...allValues) * 0.9
+    const maxValue = Math.max(...allValues) * 1.1
+    const relativeY = canvasY - padding
+    const yValue = maxValue - (relativeY / chartHeight) * (maxValue - minValue)
+
+    // 获取单位
+    const unit = this.getCurrentMetricUnit(this.data.activeChartType)
+
+    // 构建提示内容数组
+    const tooltipValues = []
+
+    // 添加实际测量值
+    if (actualValue !== null && actualValue !== undefined) {
+      tooltipValues.push(`实际值: ${actualValue}${unit}`)
+    }
+
+    // 添加WHO百分位信息
+    const percentileKeys = ['P3', 'P15', 'P50', 'P85', 'P97']
+    const percentileLabels = {
+      'P3': 'P3 (3%)',
+      'P15': 'P15 (15%)',
+      'P50': 'P50 (50%)',
+      'P85': 'P85 (85%)',
+      'P97': 'P97 (97%)'
+    }
+
+    percentileKeys.forEach(key => {
+              const value = currentData.percentiles[key] && currentData.percentiles[key][clampedIndex]
+      if (value !== undefined) {
+        tooltipValues.push(`WHO ${percentileLabels[key]}: ${value.toFixed(1)}${unit}`)
+      }
+    })
+
+    // 如果没有实际值，显示光标位置对应的坐标值
+    if (actualValue === null || actualValue === undefined) {
+      tooltipValues.unshift(`坐标值: ${yValue.toFixed(1)}${unit}`)
+    }
+
+    // 添加年龄信息
+    if (this.data.babyInfo && this.data.babyInfo.birthday && timeLabel) {
+      const ageInfo = this.calculateAgeFromTimeLabel(timeLabel)
+      if (ageInfo) {
+        tooltipValues.unshift(`年龄: ${ageInfo}`)
+      }
+    }
+
+    console.log('📊 提示框信息:', {
+      timeLabel: timeLabel,
+      actualValue: actualValue,
+      yValue: yValue,
+      tooltipValues: tooltipValues
+    })
+
+    // 更新提示框位置和内容
+    this.setData({
+      showTooltip: true,
+      tooltipX: screenX,
+      tooltipY: screenY,
+      tooltipTime: timeLabel,
+      tooltipValues: tooltipValues
+    })
+  },
+
+  // 获取当前指标的单位
+  getCurrentMetricUnit(type) {
+    const unitMap = {
+      weight: 'kg',
+      height: 'cm',
+      head: 'cm'
+    }
+    return unitMap[type] || ''
+  },
+
+  // 从时间标签计算年龄信息
+  calculateAgeFromTimeLabel(timeLabel) {
+    if (!this.data.babyInfo || !this.data.babyInfo.birthday) return null
+
+    try {
+      // 解析时间标签，可能是 "2024-01" 或 "1月" 格式
+      let targetDate = null
+      
+      if (timeLabel.includes('-')) {
+        // "2024-01" 格式
+        targetDate = new Date(timeLabel + '-01')
+      } else if (timeLabel.includes('月')) {
+        // "1月" 格式，需要结合生日年份
+        const monthMatch = timeLabel.match(/(\d+)月/)
+        if (monthMatch) {
+          const month = parseInt(monthMatch[1])
+          const birthYear = new Date(this.data.babyInfo.birthday).getFullYear()
+          targetDate = new Date(birthYear, month - 1, 1)
+        }
+      }
+
+      if (!targetDate) return null
+
+      const birthDate = new Date(this.data.babyInfo.birthday)
+      const ageInMonths = this.calculateAgeInMonths(this.data.babyInfo.birthday, targetDate)
+      
+      if (ageInMonths < 12) {
+        return `${ageInMonths}个月`
+      } else {
+        const years = Math.floor(ageInMonths / 12)
+        const months = ageInMonths % 12
+        if (months === 0) {
+          return `${years}岁`
+        } else {
+          return `${years}岁${months}个月`
+        }
+      }
+    } catch (error) {
+      console.log('📊 年龄计算错误:', error)
+      return null
+    }
+  },
+
+  // 计算两个日期之间的月份差
+  calculateAgeInMonths(birthDate, targetDate = new Date()) {
+    const birth = new Date(birthDate)
+    const target = new Date(targetDate)
+    
+    let months = (target.getFullYear() - birth.getFullYear()) * 12
+    months += target.getMonth() - birth.getMonth()
+    
+    // 如果目标日期的日数小于生日的日数，减去一个月
+    if (target.getDate() < birth.getDate()) {
+      months--
+    }
+    
+    return Math.max(0, months)
+  },
+
+  // 测试：WHO性别自动切换
+  testWHOGenderSwitch() {
+    console.log('🧪 测试WHO成长曲线性别自动切换')
+    
+    // 模拟不同性别的宝宝信息
+    const testGenders = [
+      { gender: 'male', expected: '男宝' },
+      { gender: 'female', expected: '女宝' },
+      { gender: 'boy', expected: '男宝' },
+      { gender: 'girl', expected: '女宝' },
+      { gender: null, expected: '未设置' },
+      { gender: 'unknown', expected: '未设置' }
+    ]
+    
+    const originalBabyInfo = this.data.babyInfo
+    
+    testGenders.forEach(test => {
+      // 临时设置宝宝性别
+      this.setData({
+        babyInfo: { ...originalBabyInfo, gender: test.gender }
+      })
+      
+      // 测试性别文本获取
+      const genderText = this.getGenderText(test.gender)
+      const normalizedGender = this.normalizeGender(test.gender)
+      
+      console.log(`🧪 性别: ${test.gender} -> 显示: ${genderText} (期望: ${test.expected}) -> 标准化: ${normalizedGender}`)
+      
+      // 测试WHO数据获取
+      const weightP50 = this.getWHOPercentileValue('weight', 6, 'P50', normalizedGender)
+      console.log(`  6个月体重P50: ${weightP50}kg`)
+      
+      // 验证结果
+      if (genderText === test.expected) {
+        console.log('  ✅ 性别文本正确')
+      } else {
+        console.log('  ❌ 性别文本错误')
+      }
+    })
+    
+    // 恢复原始宝宝信息
+    this.setData({
+      babyInfo: originalBabyInfo
+    })
+    
+    // 重新绘制图表以验证图例显示
+    this.drawChart()
+    
+    wx.showModal({
+      title: 'WHO性别切换测试',
+      content: '测试完成，请查看控制台输出和图表图例',
+      showCancel: false
+    })
+  },
+
+  // 测试：图表坐标提示功能
+  testChartTooltip() {
+    console.log('📍 开始测试图表坐标提示功能')
+    
+    // 模拟触摸事件
+    const mockTouch = {
+      clientX: 200,
+      clientY: 300
+    }
+    
+    // 显示测试提示框
+    this.setData({
+      showTooltip: true,
+      tooltipX: mockTouch.clientX,
+      tooltipY: mockTouch.clientY,
+      tooltipTime: '6个月',
+      tooltipValues: [
+        '年龄: 6个月',
+        '实际值: 8.0kg',
+        'WHO P3 (3%): 6.2kg',
+        'WHO P15 (15%): 7.0kg',
+        'WHO P50 (50%): 7.9kg',
+        'WHO P85 (85%): 8.9kg',
+        'WHO P97 (97%): 10.0kg'
+      ]
+    })
+    
+    console.log('📍 测试提示框已显示，位置:', mockTouch)
+    
+    // 3秒后自动隐藏
+    setTimeout(() => {
+      this.setData({
+        showTooltip: false
+      })
+      console.log('📍 测试提示框已隐藏')
+    }, 3000)
+    
+    wx.showToast({
+      title: '坐标提示测试中，请查看图表',
+      icon: 'success',
+      duration: 2000
+    })
+  },
+
+  // 调试数据和图表状态
+  async debugDataAndChart() {
+    console.log('🔍 开始调试数据和图表状态')
+    
+    try {
+      // 1. 检查云端数据
+      if (app.globalData.openid) {
+        const db = wx.cloud.database()
+        const cloudResult = await db.collection('b-measure')
+          .where({})
+          .get()
+        
+        console.log('🔍 云端所有数据:', cloudResult.data)
+        console.log('🔍 云端数据数量:', cloudResult.data.length)
+        
+        // 检查当前用户的数据 - 尝试不同的openid字段
+        let userResult = await db.collection('b-measure')
+          .where({
+            _openid: app.globalData.openid
+          })
+          .get()
+        
+        console.log('🔍 使用_openid查询用户数据结果:', userResult.data.length)
+        
+        // 如果_openid查询无结果，尝试openid
+        if (userResult.data.length === 0) {
+          userResult = await db.collection('b-measure')
+            .where({
+              openid: app.globalData.openid
+            })
+            .get()
+          console.log('🔍 使用openid查询用户数据结果:', userResult.data.length)
+        }
+        
+        console.log('🔍 当前用户云端数据:', userResult.data)
+        console.log('🔍 当前用户数据数量:', userResult.data.length)
+        
+        if (userResult.data.length > 0) {
+          console.log('🔍 第一条用户数据详情:', JSON.stringify(userResult.data[0], null, 2))
+        }
+      }
+      
+      // 2. 检查本地数据
+      const localData = wx.getStorageSync('measureRecords') || []
+      console.log('🔍 本地数据:', localData)
+      console.log('🔍 本地数据数量:', localData.length)
+      
+      // 3. 检查当前页面状态
+      console.log('🔍 当前页面数据状态:')
+      console.log('  - babyInfo:', this.data.babyInfo)
+      console.log('  - chartData:', this.data.chartData)
+      console.log('  - activeChartType:', this.data.activeChartType)
+      console.log('  - recentRecords:', this.data.recentRecords)
+      console.log('  - metrics:', this.data.metrics)
+      
+      // 4. 检查图表Canvas状态
+      console.log('🔍 图表Canvas状态:')
+      console.log('  - canvas:', !!this.canvas)
+      console.log('  - ctx:', !!this.ctx)
+      console.log('  - canvasWidth:', this.canvasWidth)
+      console.log('  - canvasHeight:', this.canvasHeight)
+      
+      // 5. 重新加载数据并绘制图表
+      console.log('🔍 重新加载数据...')
+      await this.loadData()
+      
+      // 6. 强制重新初始化图表
+      console.log('🔍 重新初始化图表...')
+      setTimeout(() => {
+        this.initChart()
+      }, 500)
+      
+      wx.showModal({
+        title: '调试信息',
+        content: `云端数据: ${app.globalData.openid ? '已连接' : '未连接'}\n本地数据: ${localData.length}条\n图表状态: ${this.ctx ? '正常' : '异常'}`,
+        showCancel: false
+      })
+      
+    } catch (error) {
+      console.error('🔍 调试过程出错:', error)
+      wx.showToast({
+        title: '调试失败: ' + error.message,
+        icon: 'none',
+        duration: 3000
+      })
+    }
+  },
+
+  // 测试数据库查询
+  async testDatabaseQuery() {
+    console.log('🔍 开始测试数据库查询')
+    
+    try {
+      if (!app.globalData.openid) {
+        wx.showToast({
+          title: '未获取到openid',
+          icon: 'none'
+        })
+        return
+      }
+      
+      const db = wx.cloud.database()
+      console.log('🔍 当前openid:', app.globalData.openid)
+      
+      // 1. 查询所有数据
+      const allResult = await db.collection('b-measure').get()
+      console.log('🔍 数据库中所有数据:', allResult.data)
+      console.log('🔍 总数据量:', allResult.data.length)
+      
+      // 2. 使用_openid查询
+      const openidResult = await db.collection('b-measure')
+        .where({ _openid: app.globalData.openid })
+        .get()
+      console.log('🔍 使用_openid查询结果:', openidResult.data)
+      
+      // 3. 使用openid查询
+      const openidResult2 = await db.collection('b-measure')
+        .where({ openid: app.globalData.openid })
+        .get()
+      console.log('🔍 使用openid查询结果:', openidResult2.data)
+      
+      // 4. 显示结果
+      let message = `总数据: ${allResult.data.length}条\n`
+      message += `_openid查询: ${openidResult.data.length}条\n`
+      message += `openid查询: ${openidResult2.data.length}条\n`
+      
+      if (allResult.data.length > 0) {
+        const sample = allResult.data[0]
+        message += `\n样本字段: ${Object.keys(sample).join(', ')}`
+      }
+      
+      wx.showModal({
+        title: '数据库查询测试',
+        content: message,
+        showCancel: false
+      })
+      
+    } catch (error) {
+      console.error('🔍 测试数据库查询失败:', error)
+      wx.showToast({
+        title: '查询失败: ' + error.message,
+        icon: 'none'
+      })
+    }
   },
 
   // 显示添加记录弹窗（供底部导航栏调用）
@@ -2596,8 +3477,21 @@ Page({
 
   // 日期选择处理
   onModalDateChange(e) {
+    const selectedDate = e.detail.value
+    const today = new Date().toISOString().split('T')[0]
+    
+    // 检查是否选择了未来日期
+    if (selectedDate > today) {
+      wx.showToast({
+        title: '不能选择未来日期',
+        icon: 'none',
+        duration: 2000
+      })
+      return
+    }
+    
     this.setData({
-      'modalData.date': e.detail.value
+      'modalData.date': selectedDate
     })
   },
 
@@ -2612,6 +3506,21 @@ Page({
         icon: 'none'
       })
       return
+    }
+
+    // 验证日期不能为未来日期
+    if (modalData.date) {
+      const selectedDate = modalData.date
+      const today = new Date().toISOString().split('T')[0]
+      
+      if (selectedDate > today) {
+        wx.showToast({
+          title: '记录日期不能是未来日期',
+          icon: 'none',
+          duration: 2000
+        })
+        return
+      }
     }
 
     // 验证数值范围
@@ -2740,13 +3649,11 @@ Page({
       
       // 查询当天是否已有记录
       const queryResult = await collection.where({
-        _openid: app.globalData.openid,
         date: measureRecord.date
       }).get()
 
       const data = {
         ...measureRecord,
-        _openid: app.globalData.openid,
         updateTime: new Date()
       }
 

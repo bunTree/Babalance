@@ -155,7 +155,7 @@
 
           <view class="form-group">
             <text class="form-label">记录日期</text>
-            <picker mode="date" value="{{modalData.date}}" bindchange="onModalDateChange">
+            <picker mode="date" value="{{modalData.date}}" end="{{maxDate}}" bindchange="onModalDateChange">
               <view class="form-input picker-input">
                 <text class="picker-text">{{modalData.date || '点击选择日期'}}</text>
                 <text class="picker-arrow">📅</text>

@@ -158,9 +158,7 @@ App({
   async loadBabyInfoFromCloud() {
     try {
       const db = wx.cloud.database()
-      const res = await db.collection('b-user').where({
-        _openid: this.globalData.openid
-      }).get()
+      const res = await db.collection('b-user').get()
       
       if (res.data.length > 0) {
         const babyInfo = res.data[0]
@@ -390,9 +388,7 @@ App({
       
       // 第二步：查询现有记录
       console.log('🔍 查询现有记录...')
-      const existRes = await collection.where({
-        _openid: this.globalData.openid
-      }).limit(1).get()
+      const existRes = await collection.limit(1).get()
       
       console.log('📊 查询结果 - 现有记录数:', existRes.data.length)
       
@@ -481,9 +477,7 @@ App({
       }
       
       const db = wx.cloud.database()
-      const res = await db.collection('b-user').where({
-        _openid: this.globalData.openid
-      }).get()
+      const res = await db.collection('b-user').get()
       
       console.log('云数据库连接测试成功:', res)
       return true

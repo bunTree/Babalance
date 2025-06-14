@@ -48,7 +48,10 @@ Page({
       head: '',
       date: ''
     },
-    submitting: false
+    submitting: false,
+    
+    // 日期限制
+    maxDate: new Date().toISOString().split('T')[0]  // 今天的日期
   },
 
   async onLoad() {
@@ -644,8 +647,21 @@ Page({
 
   // 日期选择
   onModalDateChange(e) {
+    const selectedDate = e.detail.value
+    const today = new Date().toISOString().split('T')[0]
+    
+    // 检查是否选择了未来日期
+    if (selectedDate > today) {
+      wx.showToast({
+        title: '不能选择未来日期',
+        icon: 'none',
+        duration: 2000
+      })
+      return
+    }
+    
     this.setData({
-      'modalData.date': e.detail.value
+      'modalData.date': selectedDate
     })
   },
 
@@ -660,6 +676,21 @@ Page({
         icon: 'none'
       })
       return
+    }
+
+    // 验证日期不能为未来日期
+    if (modalData.date) {
+      const selectedDate = modalData.date
+      const today = new Date().toISOString().split('T')[0]
+      
+      if (selectedDate > today) {
+        wx.showToast({
+          title: '记录日期不能是未来日期',
+          icon: 'none',
+          duration: 2000
+        })
+        return
+      }
     }
 
     // 验证数值范围
@@ -789,13 +820,11 @@ Page({
       
       // 查询当天是否已有记录
       const queryResult = await collection.where({
-        _openid: app.globalData.openid,
         date: measureRecord.date
       }).get()
 
       const data = {
         ...measureRecord,
-        _openid: app.globalData.openid,
         updateTime: new Date()
       }
 
